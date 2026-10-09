@@ -1,0 +1,307 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helper Functions ───────────────────────────────────────────────────
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isTeacher() {
+      return isAuthenticated() && 
+        getUserData().role == 'teacher' && 
+        (!('isActive' in getUserData()) || getUserData().isActive == true);
+    }
+
+    function isStudent() {
+      return isAuthenticated() && 
+        getUserData().role == 'student' && 
+        (!('isActive' in getUserData()) || getUserData().isActive == true);
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true || 
+        getUserData().role == 'admin'
+      );
+    }
+
+    function isCourseTeacher(courseId) {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/courses/$(courseId)).data.teacherId == request.auth.uid;
+    }
+
+    // ─── Users Collection ───────────────────────────────────────────────────
+
+    match /users/{userId} {
+      // Authenticated users can read profiles (e.g. teachers viewing student roster, students viewing teacher)
+      allow read: if isAuthenticated();
+      
+      // Public registration: Users can create their own profile ONLY with 'student' role.
+      // Client-submitted 'teacher' role creation is strictly forbidden.
+      allow create: if (isOwner(userId) && request.resource.data.role == 'student') || isAdmin();
+      
+      // Profile updates: Users can update preferences / displayName, but CANNOT elevate role,
+      // alter email, or toggle isActive status.
+      allow update: if (isOwner(userId) && 
+                        request.resource.data.role == resource.data.role &&
+                        request.resource.data.email == resource.data.email &&
+                        (!('isActive' in request.resource.data) || request.resource.data.isActive == resource.data.isActive))
+                    || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ─── Teacher Invitations ────────────────────────────────────────────────
+
+    match /teacher_invitations/{invitationId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ─── Courses & Members ───────────────────────────────────────────────────
+
+    match /courses/{courseId} {
+      allow read: if isAuthenticated();
+      allow create: if isTeacher() && request.resource.data.teacherId == request.auth.uid;
+      allow update: if isTeacher() && resource.data.teacherId == request.auth.uid;
+      allow delete: if isTeacher() && resource.data.teacherId == request.auth.uid;
+    }
+
+    match /course_members/{memberId} {
+      allow read: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(resource.data.courseId)
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(request.resource.data.courseId)
+      );
+      allow update, delete: if isCourseTeacher(resource.data.courseId);
+    }
+
+    // ─── Educational Materials & Chunks ──────────────────────────────────────
+
+    match /materials/{materialId} {
+      allow read: if isAuthenticated();
+      allow create: if isTeacher() && 
+                    request.resource.data.uploadedBy == request.auth.uid &&
+                    isCourseTeacher(request.resource.data.courseId);
+      allow update, delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /material_chunks/{chunkId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+    }
+
+    // ─── Assignments & Submissions ───────────────────────────────────────────
+
+    match /assignments/{assignmentId} {
+      allow read: if isAuthenticated();
+      allow create: if isTeacher() && 
+                    request.resource.data.teacherId == request.auth.uid &&
+                    isCourseTeacher(request.resource.data.courseId);
+      allow update, delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /submissions/{submissionId} {
+      allow read: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(resource.data.courseId)
+      );
+      allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
+      allow update: if (isTeacher() && isCourseTeacher(resource.data.courseId)) ||
+                       (isStudent() && resource.data.studentId == request.auth.uid && resource.data.status != 'graded');
+      allow delete: if false;
+    }
+
+    // ─── Assessments & Attempts ─────────────────────────────────────────────
+
+    match /assessments/{assessmentId} {
+      allow read: if isAuthenticated();
+      allow create: if isTeacher() && 
+                    request.resource.data.teacherId == request.auth.uid &&
+                    isCourseTeacher(request.resource.data.courseId);
+      allow update, delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /assessment_attempts/{attemptId} {
+      allow read: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(resource.data.courseId)
+      );
+      allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
+      allow update: if isStudent() && resource.data.studentId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ─── Knowledge & Learning Intelligence ───────────────────────────────────
+
+    match /concepts/{conceptId} {
+      allow read: if isAuthenticated();
+      allow create: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow update, delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /concept_candidates/{candidateId} {
+      allow read: if isTeacher() && isCourseTeacher(resource.data.courseId);
+      allow create: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow update, delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /concept_relationships/{relationshipId} {
+      allow read: if isAuthenticated();
+      allow create: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow update, delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /learning_objectives/{objectiveId} {
+      allow read: if isAuthenticated();
+      allow create: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow update, delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /concept_sources/{sourceId} {
+      allow read: if isAuthenticated();
+      allow create: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow update, delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /student_activity/{activityId} {
+      allow read: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(resource.data.courseId)
+      );
+      allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /learning_profiles/{profileId} {
+      allow read: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(resource.data.courseId)
+      );
+      allow create, update: if isAuthenticated() && (
+        request.resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(request.resource.data.courseId)
+      );
+      allow delete: if false;
+    }
+
+    match /learning_gaps/{gapId} {
+      allow read: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(resource.data.courseId)
+      );
+      allow create, update: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /learning_paths/{pathId} {
+      allow read: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(resource.data.courseId)
+      );
+      allow create, update: if isAuthenticated() && (
+        request.resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(request.resource.data.courseId)
+      );
+      allow delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /learning_path_items/{itemId} {
+      allow read: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(resource.data.courseId)
+      );
+      allow create, update: if isAuthenticated() && (
+        request.resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(request.resource.data.courseId)
+      );
+      allow delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    // ─── Source Trust & Conflict Resolution (Phase 8) ────────────────────────
+
+    match /source_profiles/{profileId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /source_conflicts/{conflictId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow delete: if false; // Immutable conflict audit records
+    }
+
+    // ─── AI Recommendations & Audit Logs ─────────────────────────────────────
+
+    match /ai_recommendations/{recommendationId} {
+      allow read: if isAuthenticated() && (
+        isCourseTeacher(resource.data.courseId) || 
+        (resource.data.studentId != null && resource.data.studentId == request.auth.uid)
+      );
+      allow create: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow update: if isTeacher() && isCourseTeacher(resource.data.courseId);
+      allow delete: if false;
+    }
+
+    match /ai_decision_events/{eventId} {
+      allow read: if isAuthenticated() && isCourseTeacher(resource.data.courseId);
+      allow create: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow update, delete: if false; // Immutable audit log
+    }
+
+    // ─── Communication ───────────────────────────────────────────────────────
+
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow create: if isTeacher() && 
+                    request.resource.data.teacherId == request.auth.uid &&
+                    isCourseTeacher(request.resource.data.courseId);
+      allow update, delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
+    }
+
+    match /teacher_messages/{messageId} {
+      allow read: if isAuthenticated() && (
+        resource.data.teacherId == request.auth.uid || 
+        resource.data.studentId == request.auth.uid
+      );
+      allow create: if isTeacher() && request.resource.data.teacherId == request.auth.uid;
+      allow update: if isStudent() && resource.data.studentId == request.auth.uid; // Read receipts
+      allow delete: if false;
+    }
+
+    match /student_messages/{messageId} {
+      allow read: if isAuthenticated() && (
+        resource.data.teacherId == request.auth.uid || 
+        resource.data.studentId == request.auth.uid
+      );
+      allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
+      allow update: if isTeacher() && resource.data.teacherId == request.auth.uid; // Read receipts
+      allow delete: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isOwner(resource.data.recipientId);
+      allow create: if isAuthenticated();
+      allow update, delete: if isOwner(resource.data.recipientId);
+    }
+
+    // ─── Fallback Deny ───────────────────────────────────────────────────────
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
