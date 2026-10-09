@@ -11,6 +11,7 @@ import {
   ChevronUp,
   Award,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import type { StudentGapSummary, AIRecommendation } from "@/types";
 
 interface TeacherAdaptiveInsightsProps {
@@ -18,6 +19,7 @@ interface TeacherAdaptiveInsightsProps {
 }
 
 export function TeacherAdaptiveInsights({ courseId }: TeacherAdaptiveInsightsProps) {
+  const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [insights, setInsights] = useState<{
@@ -42,14 +44,20 @@ export function TeacherAdaptiveInsights({ courseId }: TeacherAdaptiveInsightsPro
 
     async function fetchInsights() {
       if (!courseId) return;
+      if (authLoading) return;
+      if (!user?.uid) {
+        setLoading(false);
+        setError("Please sign in as a teacher to view course adaptive insights.");
+        return;
+      }
 
       try {
         setLoading(true);
         setError(null);
 
-        const res = await fetch(`/api/learning/teacher-insights?courseId=${courseId}`, {
+        const res = await fetch(`/api/learning/teacher-insights?courseId=${courseId}&userId=${user.uid}`, {
           headers: {
-            "x-user-id": typeof window !== "undefined" ? localStorage.getItem("edupilot_uid") || "" : "",
+            "x-user-id": user.uid,
           },
         });
 
@@ -73,7 +81,7 @@ export function TeacherAdaptiveInsights({ courseId }: TeacherAdaptiveInsightsPro
     return () => {
       ignore = true;
     };
-  }, [courseId]);
+  }, [courseId, user?.uid, authLoading]);
 
   if (loading) {
     return (

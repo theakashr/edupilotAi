@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Loader2,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import type { AdaptiveActivity, AdaptivePlanResult, IdentifiedLearningGap } from "@/types";
 
 interface AdaptiveLearningPlanProps {
@@ -31,6 +32,7 @@ export function AdaptiveLearningPlan({
   onLaunchAssessment,
   onOpenMaterial,
 }: AdaptiveLearningPlanProps) {
+  const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [replanning, setReplanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,15 +45,20 @@ export function AdaptiveLearningPlan({
 
     async function fetchPlan() {
       if (!courseId) return;
+      if (authLoading) return;
+      if (!user?.uid) {
+        setLoading(false);
+        setError("Please sign in to view your personalized learning plan.");
+        return;
+      }
 
       try {
         setLoading(true);
         setError(null);
 
-        // Derive user identity from localStorage or auth header
-        const res = await fetch(`/api/learning/plan?courseId=${courseId}`, {
+        const res = await fetch(`/api/learning/plan?courseId=${courseId}&userId=${user.uid}`, {
           headers: {
-            "x-user-id": typeof window !== "undefined" ? localStorage.getItem("edupilot_uid") || "" : "",
+            "x-user-id": user.uid,
           },
         });
 
@@ -75,18 +82,19 @@ export function AdaptiveLearningPlan({
     return () => {
       ignore = true;
     };
-  }, [courseId]);
+  }, [courseId, user?.uid, authLoading]);
 
   const handleManualReplan = async () => {
+    if (!user?.uid) return;
     try {
       setReplanning(true);
       const res = await fetch("/api/learning/replan", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": typeof window !== "undefined" ? localStorage.getItem("edupilot_uid") || "" : "",
+          "x-user-id": user.uid,
         },
-        body: JSON.stringify({ courseId }),
+        body: JSON.stringify({ courseId, userId: user.uid }),
       });
 
       const data = await res.json();
@@ -103,15 +111,16 @@ export function AdaptiveLearningPlan({
   };
 
   const handleCompleteItem = async (activity: AdaptiveActivity) => {
+    if (!user?.uid) return;
     try {
       setCompletingId(activity.id);
       const res = await fetch(`/api/learning/plan/item/${activity.id}/complete`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": typeof window !== "undefined" ? localStorage.getItem("edupilot_uid") || "" : "",
+          "x-user-id": user.uid,
         },
-        body: JSON.stringify({ courseId }),
+        body: JSON.stringify({ courseId, userId: user.uid }),
       });
 
       if (res.ok) {

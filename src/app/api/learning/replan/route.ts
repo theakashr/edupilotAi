@@ -13,13 +13,17 @@ import { replanningService } from '@/services/learning/replanningService';
 
 export async function POST(req: NextRequest) {
   try {
-    const authUserId = req.headers.get('x-user-id');
+    const body = await req.json().catch(() => ({}));
+    const { courseId, studentId: requestedStudentId } = body;
+
+    const authUserId =
+      req.headers.get('x-user-id')?.trim() ||
+      req.nextUrl.searchParams.get('userId')?.trim() ||
+      body.userId?.trim();
+
     if (!authUserId) {
       return NextResponse.json({ error: 'Unauthorized: Missing user identity' }, { status: 401 });
     }
-
-    const body = await req.json().catch(() => ({}));
-    const { courseId, studentId: requestedStudentId } = body;
 
     if (!courseId) {
       return NextResponse.json({ error: 'courseId is required' }, { status: 400 });

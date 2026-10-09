@@ -18,7 +18,10 @@ export async function GET(req: NextRequest) {
     const courseId = req.nextUrl.searchParams.get('courseId');
     const targetStudentId = req.nextUrl.searchParams.get('studentId');
 
-    const authUserId = req.headers.get('x-user-id');
+    const authUserId =
+      req.headers.get('x-user-id')?.trim() ||
+      req.nextUrl.searchParams.get('userId')?.trim();
+
     if (!authUserId) {
       return NextResponse.json({ error: 'Unauthorized: Missing user identity' }, { status: 401 });
     }

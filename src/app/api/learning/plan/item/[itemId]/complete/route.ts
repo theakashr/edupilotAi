@@ -14,14 +14,18 @@ export async function POST(
   context: { params: Promise<{ itemId: string }> }
 ) {
   try {
-    const authUserId = req.headers.get('x-user-id');
-    if (!authUserId) {
-      return NextResponse.json({ error: 'Unauthorized: Missing user identity' }, { status: 401 });
-    }
-
     const { itemId } = await context.params;
     const body = await req.json().catch(() => ({}));
     const { courseId } = body;
+
+    const authUserId =
+      req.headers.get('x-user-id')?.trim() ||
+      req.nextUrl.searchParams.get('userId')?.trim() ||
+      body.userId?.trim();
+
+    if (!authUserId) {
+      return NextResponse.json({ error: 'Unauthorized: Missing user identity' }, { status: 401 });
+    }
 
     if (!itemId) {
       return NextResponse.json({ error: 'itemId is required' }, { status: 400 });
