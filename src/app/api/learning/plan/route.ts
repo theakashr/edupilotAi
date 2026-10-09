@@ -13,13 +13,10 @@ import { courseService } from '@/services/courses/courseService';
 import { getUserProfile } from '@/lib/firebase/firestore';
 import { replanningService } from '@/services/learning/replanningService';
 
-export const dynamic = 'force-dynamic';
-
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const courseId = searchParams.get('courseId');
-    const targetStudentId = searchParams.get('studentId');
+    const courseId = req.nextUrl.searchParams.get('courseId');
+    const targetStudentId = req.nextUrl.searchParams.get('studentId');
 
     const authUserId = req.headers.get('x-user-id');
     if (!authUserId) {

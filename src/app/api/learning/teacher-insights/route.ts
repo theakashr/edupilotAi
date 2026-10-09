@@ -20,12 +20,9 @@ import { estimateStudentCourseMastery } from '@/services/learning/masteryEstimat
 import { diagnoseLearningGaps } from '@/services/learning/learningGapEngine';
 import type { StudentGapSummary, AssessmentAttempt, Concept, CourseMember } from '@/types';
 
-export const dynamic = 'force-dynamic';
-
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const courseId = searchParams.get('courseId');
+    const courseId = req.nextUrl.searchParams.get('courseId');
 
     const authUserId = req.headers.get('x-user-id');
     if (!authUserId) {
