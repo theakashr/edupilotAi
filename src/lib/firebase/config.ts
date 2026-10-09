@@ -17,7 +17,14 @@ export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getA
 
 // Auth and Firestore are used in Phase 2
 // Storage will be imported on-demand in Phase 5
-export const auth = getAuth(app);
+let authInstance: ReturnType<typeof getAuth> | any;
+try {
+  authInstance = getAuth(app);
+} catch (error) {
+  console.warn("Firebase Auth init failed (expected during Vercel build if env vars missing)");
+}
+export const auth = authInstance;
+
 let firestoreDb;
 try {
   firestoreDb = initializeFirestore(app, {
@@ -25,8 +32,12 @@ try {
   });
 } catch (e: any) {
   // Fallback if already initialized (e.g. during HMR or SSR)
-  firestoreDb = getFirestore(app);
+  try {
+    firestoreDb = getFirestore(app);
+  } catch (err) {
+    console.warn("Firestore init failed (expected during Vercel build if env vars missing)");
+  }
 }
 
-export const db = firestoreDb;
+export const db = firestoreDb as any;
 
