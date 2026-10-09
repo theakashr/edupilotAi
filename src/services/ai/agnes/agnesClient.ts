@@ -28,7 +28,7 @@ import { AgnesError, normalizeAgnesError } from './agnesErrors';
 export function getAgnesConfig(): AgnesClientConfig {
   return {
     apiKey: process.env.AGNES_API_KEY,
-    apiUrl: process.env.AGNES_API_URL || 'https://api.agnes.ai/v1',
+    apiUrl: process.env.AGNES_API_URL || 'https://apihub.agnes-ai.com/v1',
     model: process.env.AGNES_MODEL || 'agnes-3.0-flash',
     timeoutMs: parseInt(process.env.AGNES_REQUEST_TIMEOUT_MS || '30000', 10),
     maxRetries: parseInt(process.env.AGNES_MAX_RETRIES || '3', 10),
@@ -264,7 +264,7 @@ export class AgnesClient {
         clearTimeout(timeoutTimer);
 
         const normalized = normalizeAgnesError(err, aiRequestId);
-
+        console.log('[DEBUG AgnesClient Catch]', err, 'Normalized Code:', normalized.code);
         // If it's a non-retryable error (e.g. auth, invalid schema, client bad request), throw immediately
         if (!normalized.retryable || attempt >= maxRetries) {
           throw normalized;

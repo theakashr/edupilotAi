@@ -137,12 +137,14 @@ export const conceptCandidateService = {
     try {
       const q = query(
         conceptCandidateCollection(),
-        where('courseId', '==', courseId),
-        orderBy('relevanceScore', 'desc')
+        where('courseId', '==', courseId)
       );
 
       const snapshot = await getDocs(q);
       let candidates = snapshot.docs.map((d) => d.data());
+
+      // Sort manually since composite index (courseId, relevanceScore) might not be deployed
+      candidates.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
       if (status) {
         candidates = candidates.filter((c) => c.status === status);

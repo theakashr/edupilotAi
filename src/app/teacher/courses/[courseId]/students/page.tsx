@@ -23,6 +23,7 @@ import {
   UserCheck,
   Copy,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 
 interface PageProps {
@@ -77,6 +78,21 @@ export default function CourseStudentsPage({ params }: PageProps) {
 
   // Table copy feedback
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const handleRemoveStudent = async (memberId: string) => {
+    if (!confirm("Are you sure you want to remove this student from the course?")) return;
+    setRemovingId(memberId);
+    try {
+      const res = await courseService.removeCourseMember(memberId);
+      if (!res.success) throw new Error(res.error);
+      setStudents((prev) => prev.filter((s) => s.member.id !== memberId));
+    } catch (err: unknown) {
+      alert("Failed to remove student: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setRemovingId(null);
+    }
+  };
 
   useEffect(() => {
     async function loadCourseAndStudents() {
@@ -359,6 +375,7 @@ export default function CourseStudentsPage({ params }: PageProps) {
                     <th scope="col" className="px-6 py-3.5">Official Student ID</th>
                     <th scope="col" className="px-6 py-3.5">Enrollment Status</th>
                     <th scope="col" className="px-6 py-3.5">Enrolled Date</th>
+                    <th scope="col" className="px-6 py-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -416,6 +433,21 @@ export default function CourseStudentsPage({ params }: PageProps) {
                             <Clock className="w-3.5 h-3.5 text-slate-300" />
                             {item.member.joinedAt ? "Active Cohort" : "Recently"}
                           </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveStudent(item.member.id)}
+                            disabled={removingId === item.member.id}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50"
+                            title="Remove Student"
+                          >
+                            {removingId === item.member.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
                         </td>
                       </tr>
                     );

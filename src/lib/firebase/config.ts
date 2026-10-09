@@ -1,6 +1,6 @@
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -18,5 +18,15 @@ export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getA
 // Auth and Firestore are used in Phase 2
 // Storage will be imported on-demand in Phase 5
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  });
+} catch (e: any) {
+  // Fallback if already initialized (e.g. during HMR or SSR)
+  firestoreDb = getFirestore(app);
+}
+
+export const db = firestoreDb;
 

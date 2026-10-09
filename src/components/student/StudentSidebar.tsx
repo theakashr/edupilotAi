@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { logoutUser } from "@/services/auth/authService";
 import { generateStudentId } from "@/lib/studentId";
 import { StudentProfileModal } from "@/components/student/StudentProfileModal";
+import { StudentNotificationCenter } from "@/components/student/notifications/StudentNotificationCenter";
 import {
   Compass,
   BookOpen,
@@ -203,14 +204,17 @@ export function StudentSidebar() {
               <UserCheck className="w-3.5 h-3.5 text-slate-300 group-hover:text-indigo-500 shrink-0" />
             </button>
 
-            <button
-              onClick={handleLogout}
-              title="Sign out"
+            <div className="flex items-center gap-1 shrink-0">
+              <StudentNotificationCenter />
+              <button
+                onClick={handleLogout}
+                title="Sign out"
               className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
               aria-label="Sign out"
             >
-              <LogOut className="w-4 h-4" />
-            </button>
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>

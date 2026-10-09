@@ -35,13 +35,14 @@ export interface PlanGenerationInput {
   assessments: Assessment[];
   masteryProfile: StudentCourseMasteryProfile;
   activeGaps: IdentifiedLearningGap[];
+  predictedGaps?: IdentifiedLearningGap[];
 }
 
 /**
  * Deterministically generates an array of prioritized learning activities for a student.
  */
 export function generateAdaptiveActivities(input: PlanGenerationInput): AdaptiveActivity[] {
-  const { concepts, materials, assessments, masteryProfile, activeGaps } = input;
+  const { concepts, materials, assessments, masteryProfile, activeGaps, predictedGaps = [] } = input;
 
   const conceptMap = new Map<string, Concept>();
   for (const c of concepts) {
@@ -166,6 +167,35 @@ export function generateAdaptiveActivities(input: PlanGenerationInput): Adaptive
       referenceId: ass ? ass.id : mat ? mat.id : undefined,
       resourceTitle: ass ? ass.title : mat ? mat.title : undefined,
       resourceType: ass ? 'Practice Assessment' : mat ? 'Course Material' : 'Review Note',
+      resourceAvailable: Boolean(mat || ass),
+      isPrerequisiteReinforcement: false,
+      status: 'pending',
+    });
+  }
+
+  // ─── Step 3.5: Predicted Early-Warning Gaps ─────────────────────────────────
+  for (const gap of predictedGaps) {
+    const concept = conceptMap.get(gap.conceptId);
+    if (!concept || processedConceptIds.has(concept.id)) continue;
+    processedConceptIds.add(concept.id);
+
+    const mat = findMaterialForConcept(concept);
+    const ass = findAssessmentForConcept(concept);
+
+    activities.push({
+      id: `act_pred_${concept.id}_${currentOrder}`,
+      order: currentOrder++,
+      conceptId: concept.id,
+      conceptName: concept.name,
+      activityType: mat ? 'lesson' : 'revision',
+      priority: gap.riskLevel === 'high' ? 'high' : 'medium',
+      title: `Preventive Early-Warning: ${concept.name}`,
+      description: `Targeted intervention to prevent predicted struggle (Root Prerequisite Weakness).`,
+      reason: gap.reason,
+      evidence: gap.evidence,
+      referenceId: mat ? mat.id : ass ? ass.id : undefined,
+      resourceTitle: mat ? mat.title : ass ? ass.title : undefined,
+      resourceType: mat ? 'Course Material' : ass ? 'Assessment' : 'Conceptual Guide',
       resourceAvailable: Boolean(mat || ass),
       isPrerequisiteReinforcement: false,
       status: 'pending',

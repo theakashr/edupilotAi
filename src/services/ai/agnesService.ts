@@ -46,6 +46,7 @@ export interface ExplainConceptParams {
   courseId: string;
   concept: Concept;
   selectedChunks: MaterialChunk[];
+  question?: string;
   language?: string;
   userId: string;
   materialTitles?: Record<string, string>;
@@ -228,13 +229,22 @@ export const agnesService = {
 
       // 2. Prepare grounded explanation prompt
       const systemPrompt = buildExplanationSystemPrompt(params.concept.name, params.language);
-      const userPrompt = [
+      
+      const promptParts = [
         `Target Concept: "${params.concept.name}" (ID: ${params.concept.id})`,
         '',
         contextResult.formattedContext,
         '',
         `Explain "${params.concept.name}" strictly using the sources provided above.`,
-      ].join('\n');
+      ];
+      
+      if (params.question) {
+        promptParts.push('');
+        promptParts.push(`The student has additionally asked the following question: "${params.question}"`);
+        promptParts.push(`Please incorporate the answer to this question in your explanation, using ONLY the provided sources.`);
+      }
+      
+      const userPrompt = promptParts.join('\n');
 
       const messages: AgnesChatMessage[] = [
         { role: 'system', content: systemPrompt },
@@ -278,7 +288,7 @@ export const agnesService = {
 
       return {
         success: false,
-        error: normalized.safeUserMessage,
+        error: `${normalized.safeUserMessage} - DEBUG: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
   },

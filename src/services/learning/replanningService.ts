@@ -31,6 +31,7 @@ import { materialService } from '@/services/materials/materialService';
 import { aiService } from '@/services/ai/aiService';
 import { estimateStudentCourseMastery } from './masteryEstimator';
 import { diagnoseLearningGaps, syncGapsToFirestore } from './learningGapEngine';
+import { predictLearningGaps } from './predictionEngine';
 import { generateAdaptiveActivities } from './adaptivePlanner';
 
 export interface ReplanStudentParams {
@@ -84,6 +85,9 @@ export const replanningService = {
       // 4. Diagnose Learning Gaps via Knowledge Graph
       const gapDiagnosis = diagnoseLearningGaps(concepts, masteryProfile, existingGaps);
 
+      // 4.5 Predict Future Learning Gaps
+      const predictionDiag = predictLearningGaps(concepts, masteryProfile);
+
       // 5. Synchronize Gaps to Firestore
       await syncGapsToFirestore(studentId, courseId, gapDiagnosis);
 
@@ -96,7 +100,28 @@ export const replanningService = {
         assessments,
         masteryProfile,
         activeGaps: gapDiagnosis.activeGaps,
+        predictedGaps: predictionDiag.predictedGaps,
       });
+
+      // 6.5 Generate AI Recommendations for Predicted Gaps
+      for (const gap of predictionDiag.predictedGaps) {
+        if (gap.riskLevel === 'high') {
+          try {
+            await aiService.createRecommendation({
+              courseId,
+              studentId,
+              type: 'intervention',
+              priority: 'high',
+              status: 'pending',
+              createdBy: 'ai',
+              title: `Preventive Intervention: ${gap.conceptName}`,
+              explanation: `Predicted struggle for ${gap.conceptName} because prerequisite '${gap.rootPrerequisiteConceptName}' is weak. Recommend review before progressing.`,
+            });
+          } catch (err) {
+            console.warn('Failed to create preventive recommendation:', err);
+          }
+        }
+      }
 
       // 7. Find or create the student's active Learning Path
       let activePath = existingPaths.find((p) => p.status === 'active' || p.status === 'draft');
@@ -161,7 +186,7 @@ export const replanningService = {
         gapDiagnosis.resolvedGapCount > 0
           ? ` Resolved ${gapDiagnosis.resolvedGapCount} previous gaps.`
           : '';
-      const gapSummary = `${gapDiagnosis.activeGaps.length} active gaps identified.${resolvedNote}`;
+      const gapSummary = `${gapDiagnosis.activeGaps.length} active gaps identified, ${predictionDiag.predictedGaps.length} predicted.${resolvedNote}`;
 
       await aiService.logDecisionEvent({
         courseId,

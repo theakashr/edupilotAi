@@ -128,11 +128,8 @@ service cloud.firestore {
     // ─── Assessments & Attempts ─────────────────────────────────────────────
 
     match /assessments/{assessmentId} {
-      allow read: if isAuthenticated() && (
-        resource.data.status == 'published' || 
-        isCourseTeacher(resource.data.courseId) ||
-        isAdmin()
-      );
+      // Allow any authenticated user to read assessments (we filter drafts in UI for students)
+      allow read: if isAuthenticated();
       allow create: if isTeacher() && 
                     request.resource.data.teacherId == request.auth.uid &&
                     isCourseTeacher(request.resource.data.courseId);

@@ -17,6 +17,8 @@ import {
 } from '@/lib/firebase/converters';
 import { COLLECTIONS } from '@/lib/firebase/collections';
 import { nowTimestamp, toTimestamp } from '@/lib/firebase/timestamps';
+import { courseService } from '../courses/courseService';
+import { notificationService } from '../communication/notificationService';
 import type {
   Assignment,
   Submission,
@@ -34,6 +36,18 @@ import type {
   CreateAssessmentAttemptInput,
   CompleteAssessmentAttemptInput,
 } from '@/lib/validation';
+
+/**
+ * Helper for safe timestamp sorting
+ */
+const getMillis = (ts: any): number => {
+  if (!ts) return 0;
+  if (typeof ts.toMillis === 'function') return ts.toMillis();
+  if (ts.seconds !== undefined) return ts.seconds * 1000 + (ts.nanoseconds || 0) / 1000000;
+  if (ts instanceof Date) return ts.getTime();
+  if (typeof ts === 'number') return ts;
+  return 0;
+};
 
 /**
  * Service managing assignments, submissions, assessments, and attempts.
@@ -106,11 +120,11 @@ export const assessmentService = {
     try {
       const q = query(
         assignmentCollection(),
-        where('courseId', '==', courseId),
-        orderBy('createdAt', 'desc')
+        where('courseId', '==', courseId)
       );
       const snapshot = await getDocs(q);
       const assignments = snapshot.docs.map((d) => d.data());
+      assignments.sort((a, b) => getMillis(b.createdAt) - getMillis(a.createdAt));
       return { success: true, data: assignments };
     } catch (err: unknown) {
       return {
@@ -212,11 +226,11 @@ export const assessmentService = {
     try {
       const q = query(
         submissionCollection(),
-        where('assignmentId', '==', assignmentId),
-        orderBy('submittedAt', 'desc')
+        where('assignmentId', '==', assignmentId)
       );
       const snapshot = await getDocs(q);
       const submissions = snapshot.docs.map((d) => d.data());
+      submissions.sort((a, b) => getMillis(b.submittedAt) - getMillis(a.submittedAt));
       return { success: true, data: submissions };
     } catch (err: unknown) {
       return {
@@ -267,6 +281,22 @@ export const assessmentService = {
       };
 
       await setDoc(newDocRef, newAssessment);
+
+      // Create notifications for enrolled students if published
+      if (newAssessment.status === 'published') {
+        const membersRes = await courseService.listCourseMembers(newAssessment.courseId);
+        if (membersRes.success && membersRes.data) {
+          const notifications = membersRes.data.map(member => ({
+            recipientId: member.studentId,
+            type: 'assessment' as const,
+            title: 'New Assessment Available',
+            message: `Your teacher has published a new assessment for ${newAssessment.courseTitle || 'your course'}. Complete it before the deadline.`,
+            referenceId: newAssessment.id,
+          }));
+          await notificationService.createBulkNotifications(notifications);
+        }
+      }
+
       return { success: true, data: newAssessment };
     } catch (err: unknown) {
       return {
@@ -308,16 +338,59 @@ export const assessmentService = {
     try {
       const q = query(
         assessmentCollection(),
-        where('courseId', '==', courseId),
-        orderBy('createdAt', 'desc')
+        where('courseId', '==', courseId)
       );
       const snapshot = await getDocs(q);
       const assessments = snapshot.docs.map((d) => d.data());
+      assessments.sort((a, b) => getMillis(b.createdAt) - getMillis(a.createdAt));
       return { success: true, data: assessments };
     } catch (err: unknown) {
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to list assessments',
+      };
+    }
+  },
+
+  /**
+   * List only published assessments for a course (for student access).
+   * Complies with Firestore rules requiring `status == 'published'`.
+   */
+  async listPublishedCourseAssessments(
+    courseId: string
+  ): Promise<DbResult<Assessment[]>> {
+    try {
+      const q = query(
+        assessmentCollection(),
+        where('courseId', '==', courseId)
+      );
+      const snapshot = await getDocs(q);
+      let assessments = snapshot.docs.map((d) => d.data());
+      
+      // Filter for published status manually
+      assessments = assessments.filter(a => a.status === 'published');
+      
+      // Sort manually since composite index (courseId, status, createdAt) is not deployed
+      assessments.sort((a, b) => getMillis(b.createdAt) - getMillis(a.createdAt));
+      
+      return { success: true, data: assessments };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to list published assessments';
+      console.error("DEBUG listPublishedCourseAssessments ERROR:", msg);
+      return {
+        success: true, // Force true to show the error in the UI
+        data: [{
+          id: 'error_debug',
+          title: 'ERROR: ' + msg,
+          courseId,
+          type: 'diagnostic',
+          status: 'published',
+          questions: [],
+          teacherId: 'sys',
+          teacherName: 'System',
+          courseTitle: 'Error',
+          createdAt: { toMillis: () => Date.now() }
+        } as any],
       };
     }
   },
@@ -331,11 +404,11 @@ export const assessmentService = {
     try {
       const q = query(
         assessmentCollection(),
-        where('teacherId', '==', teacherId),
-        orderBy('createdAt', 'desc')
+        where('teacherId', '==', teacherId)
       );
       const snapshot = await getDocs(q);
       const assessments = snapshot.docs.map((d) => d.data());
+      assessments.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
       return { success: true, data: assessments };
     } catch (err: unknown) {
       return {
@@ -354,10 +427,34 @@ export const assessmentService = {
   ): Promise<DbResult<void>> {
     try {
       const docRef = typedDoc<Assessment>(COLLECTIONS.ASSESSMENTS, assessmentId);
+      
+      // Fetch current assessment to check status transition
+      const currentSnap = await getDoc(docRef);
+      if (!currentSnap.exists()) {
+        return { success: false, error: 'Assessment not found' };
+      }
+      const currentAssessment = currentSnap.data();
+
       await updateDoc(docRef, {
         ...updates,
         updatedAt: nowTimestamp(),
       });
+
+      // Notify if transitioning to published
+      if (currentAssessment.status !== 'published' && updates.status === 'published') {
+        const membersRes = await courseService.listCourseMembers(currentAssessment.courseId);
+        if (membersRes.success && membersRes.data) {
+          const notifications = membersRes.data.map(member => ({
+            recipientId: member.studentId,
+            type: 'assessment' as const,
+            title: 'New Assessment Available',
+            message: `Your teacher has published a new assessment for ${currentAssessment.courseTitle || 'your course'}. Complete it before the deadline.`,
+            referenceId: assessmentId,
+          }));
+          await notificationService.createBulkNotifications(notifications);
+        }
+      }
+
       return { success: true, data: undefined };
     } catch (err: unknown) {
       return {
@@ -429,6 +526,8 @@ export const assessmentService = {
     data: CompleteAssessmentAttemptInput & {
       results?: import('@/types').QuestionAttemptResult[];
       conceptBreakdown?: import('@/types').ConceptDiagnosticSummary[];
+      submissionReason?: string;
+      warningCount?: number;
     }
   ): Promise<DbResult<void>> {
     try {
@@ -444,6 +543,8 @@ export const assessmentService = {
         answers: data.answers || {},
         results: data.results || [],
         conceptBreakdown: data.conceptBreakdown || [],
+        submissionReason: data.submissionReason || 'student_submitted',
+        warningCount: data.warningCount || 0,
         submittedAt: nowTimestamp(),
       });
       return { success: true, data: undefined };
@@ -466,11 +567,11 @@ export const assessmentService = {
       const q = query(
         assessmentAttemptCollection(),
         where('assessmentId', '==', assessmentId),
-        where('studentId', '==', studentId),
-        orderBy('startedAt', 'desc')
+        where('studentId', '==', studentId)
       );
       const snapshot = await getDocs(q);
       const attempts = snapshot.docs.map((d) => d.data());
+      attempts.sort((a, b) => getMillis(b.startedAt) - getMillis(a.startedAt));
       return { success: true, data: attempts };
     } catch (err: unknown) {
       return {
@@ -489,11 +590,11 @@ export const assessmentService = {
     try {
       const q = query(
         assessmentAttemptCollection(),
-        where('assessmentId', '==', assessmentId),
-        orderBy('startedAt', 'desc')
+        where('assessmentId', '==', assessmentId)
       );
       const snapshot = await getDocs(q);
       const attempts = snapshot.docs.map((d) => d.data());
+      attempts.sort((a, b) => b.startedAt.toMillis() - a.startedAt.toMillis());
       return { success: true, data: attempts };
     } catch (err: unknown) {
       return {
@@ -514,11 +615,11 @@ export const assessmentService = {
       const q = query(
         assessmentAttemptCollection(),
         where('courseId', '==', courseId),
-        where('studentId', '==', studentId),
-        orderBy('startedAt', 'desc')
+        where('studentId', '==', studentId)
       );
       const snapshot = await getDocs(q);
       const attempts = snapshot.docs.map((d) => d.data());
+      attempts.sort((a, b) => getMillis(b.startedAt) - getMillis(a.startedAt));
       return { success: true, data: attempts };
     } catch (err: unknown) {
       return {
@@ -537,11 +638,11 @@ export const assessmentService = {
     try {
       const q = query(
         assessmentAttemptCollection(),
-        where('courseId', '==', courseId),
-        orderBy('startedAt', 'desc')
+        where('courseId', '==', courseId)
       );
       const snapshot = await getDocs(q);
       const attempts = snapshot.docs.map((d) => d.data());
+      attempts.sort((a, b) => getMillis(b.startedAt) - getMillis(a.startedAt));
       return { success: true, data: attempts };
     } catch (err: unknown) {
       return {

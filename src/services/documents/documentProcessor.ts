@@ -18,6 +18,7 @@ import { materialService } from '@/services/materials/materialService';
 import { courseService } from '@/services/courses/courseService';
 import { extractPdfText, PdfExtractorError } from './pdfExtractor';
 import { chunkExtractedPages } from './textChunker';
+import { conceptCandidateService } from '@/services/knowledge/conceptCandidateService';
 import type { Material, MaterialStatus } from '@/types';
 
 export interface DocumentProcessResult {
@@ -164,6 +165,21 @@ export async function processDocument({
     if (!storeRes.success) {
       throw new Error(`Failed to store extracted chunks: ${storeRes.error}`);
     }
+
+    // ─── STAGE 6.5: GENERATE CONCEPT CANDIDATES ──────────────────────────────
+    console.log(`[DocumentProcessor] Stage: EXTRACT CANDIDATES — Generating concepts from chunks`);
+    const candRes = await conceptCandidateService.extractAndSaveCandidates(
+      material.courseId,
+      materialId,
+      chunks as any
+    );
+    
+    if (candRes.success) {
+      console.log(`[DocumentProcessor] Extracted ${candRes.data?.totalExtracted} candidates, saved ${candRes.data?.newSaved} new candidates`);
+    } else {
+      console.warn(`[DocumentProcessor] Failed to extract candidates automatically:`, candRes.error);
+    }
+
 
     // ─── STAGE 7: READY STATE ─────────────────────────────────────────────────
     await materialService.updateMaterial(materialId, {

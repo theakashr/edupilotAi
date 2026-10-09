@@ -38,8 +38,14 @@ export default function StudentAiTutorPage() {
     summary?: string;
     explanation?: string;
     keyTakeaways?: string[];
+    sourceReferences?: Array<{
+      materialTitle?: string;
+      pageNumber?: number;
+      relevanceNote?: string;
+    }>;
   } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [studentQuestion, setStudentQuestion] = useState<string>('');
 
   // 1. Load enrolled courses
   useEffect(() => {
@@ -77,7 +83,9 @@ export default function StudentAiTutorPage() {
     };
   }, [user?.uid, profile?.studentId, paramCourseId]);
 
-  // 2. Load concepts and materials for selected course
+  const [readiness, setReadiness] = useState<any>(null);
+
+  // 2. Load concepts, materials, and readiness for selected course
   useEffect(() => {
     let ignore = false;
 
@@ -85,9 +93,10 @@ export default function StudentAiTutorPage() {
       if (!selectedCourse?.id) return;
 
       try {
-        const [conRes, matRes] = await Promise.all([
+        const [conRes, matRes, readRes] = await Promise.all([
           conceptService.listCourseConcepts(selectedCourse.id),
           materialService.listCourseMaterials(selectedCourse.id),
+          fetch(`/api/courses/${selectedCourse.id}/readiness?studentId=${user?.uid || ''}`).then(r => r.json())
         ]);
 
         if (ignore) return;
@@ -110,6 +119,10 @@ export default function StudentAiTutorPage() {
         } else {
           setMaterials([]);
         }
+
+        if (readRes.success && readRes.data) {
+          setReadiness(readRes.data);
+        }
       } catch (err) {
         console.error("Failed to load course content for AI tutor:", err);
       }
@@ -120,7 +133,7 @@ export default function StudentAiTutorPage() {
     return () => {
       ignore = true;
     };
-  }, [selectedCourse?.id, paramConceptId]);
+  }, [selectedCourse?.id, paramConceptId, user?.uid]);
 
   const handleExplainConcept = async () => {
     if (!selectedCourse || !selectedConceptId || !user?.uid) return;
@@ -133,22 +146,25 @@ export default function StudentAiTutorPage() {
     setExplanationResult(null);
 
     try {
-      // Direct explanation grounded in verified concept definition
-      await new Promise((r) => setTimeout(r, 600));
-
-      setExplanationResult({
-        summary: `Conceptual breakdown for "${concept.name}" in ${selectedCourse.title}.`,
-        explanation: concept.description
-          ? `${concept.description}\n\nDifficulty level: ${concept.difficulty}/10. This concept is a core verified milestone in your curriculum.`
-          : `No extended textbook passage has been indexed yet for ${concept.name}. However, it is mapped at difficulty level ${concept.difficulty}/10 with ${concept.prerequisiteConceptIds?.length || 0} prerequisite dependencies.`,
-        keyTakeaways: [
-          `Verified course topic: ${concept.name}`,
-          `Prerequisites: ${concept.prerequisiteConceptIds?.length || 0} required concepts`,
-          `Difficulty Rating: ${concept.difficulty}/10`,
-        ],
+      const res = await fetch('/api/ai/agnes/tutor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          courseId: selectedCourse.id,
+          conceptId: concept.id,
+          question: studentQuestion.trim(),
+          userId: user.uid
+        }),
       });
+      
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setExplanationResult(data.data);
+      } else {
+        setErrorMessage(data.error || "Could not generate concept explanation. Please try again.");
+      }
     } catch {
-      setErrorMessage("Could not generate concept explanation. Please try again.");
+      setErrorMessage("Network error while trying to fetch explanation. Please try again.");
     } finally {
       setIsExplaining(false);
     }
@@ -188,7 +204,7 @@ export default function StudentAiTutorPage() {
     );
   }
 
-  const isReadyForGrounding = concepts.length > 0;
+  const isReadyForGrounding = readiness?.isReady || false;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -205,7 +221,7 @@ export default function StudentAiTutorPage() {
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 mt-2">
-            AI Learning Tutor
+            AI Concept Tutor
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             Ask conceptual questions and explore instructor-verified curriculum definitions.
@@ -250,7 +266,7 @@ export default function StudentAiTutorPage() {
               AI Tutor Awaiting Course Setup
             </h3>
             <p className="text-sm text-slate-500 leading-relaxed">
-              Agnes 3.0 requires verified instructor materials and curriculum concepts to generate source-grounded answers. InEduPilot, AI never fabricates or hallucinates outside authorized course boundaries.
+              {readiness?.tutor.message || 'Waiting for course content...'}
             </p>
           </div>
 
@@ -258,21 +274,31 @@ export default function StudentAiTutorPage() {
             <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Readiness Checklist:
             </h4>
-            <div className="flex items-center gap-2 text-emerald-700">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Student Enrolled in {selectedCourse?.title}</span>
+            <div className={`flex items-center gap-2 ${readiness?.enrollment.status === 'enrolled' ? 'text-emerald-700' : 'text-slate-400'}`}>
+              {readiness?.enrollment.status === 'enrolled' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <span className="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center text-[10px]">○</span>
+              )}
+              <span>{readiness?.enrollment.message || `Student Enrolled in ${selectedCourse?.title}`}</span>
             </div>
-            <div className="flex items-center gap-2 text-slate-400">
-              <span className="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center text-[10px]">
-                ○
-              </span>
-              <span>Course Concepts Defined (0 found)</span>
+            
+            <div className={`flex items-center gap-2 ${readiness?.materials.status === 'processed' ? 'text-emerald-700' : 'text-slate-400'}`}>
+              {readiness?.materials.status === 'processed' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <span className="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center text-[10px]">○</span>
+              )}
+              <span>Learning Materials: {readiness?.materials.message || 'Checking...'} ({readiness?.materials.count || 0} found)</span>
             </div>
-            <div className="flex items-center gap-2 text-slate-400">
-              <span className="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center text-[10px]">
-                ○
-              </span>
-              <span>Learning Materials Uploaded ({materials.length} found)</span>
+
+            <div className={`flex items-center gap-2 ${readiness?.concepts.status === 'approved' ? 'text-emerald-700' : 'text-slate-400'}`}>
+              {readiness?.concepts.status === 'approved' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <span className="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center text-[10px]">○</span>
+              )}
+              <span>Concepts: {readiness?.concepts.message || 'Checking...'} ({readiness?.concepts.approvedCount || 0} approved, {readiness?.concepts.pendingCount || 0} pending)</span>
             </div>
           </div>
         </div>
@@ -307,6 +333,20 @@ export default function StudentAiTutorPage() {
                   </select>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3 pointer-events-none rotate-90" />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="student-question" className="text-xs font-semibold text-slate-500">
+                  Your Question (Optional):
+                </label>
+                <textarea
+                  id="student-question"
+                  value={studentQuestion}
+                  onChange={(e) => setStudentQuestion(e.target.value)}
+                  placeholder="e.g. Can you explain this with an example?"
+                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-medium p-3 rounded-xl hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  rows={3}
+                />
               </div>
 
               <button
@@ -383,6 +423,24 @@ export default function StudentAiTutorPage() {
                     <ul className="space-y-1 text-xs text-indigo-900/80 list-disc list-inside">
                       {explanationResult.keyTakeaways.map((item, idx) => (
                         <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {explanationResult.sourceReferences && explanationResult.sourceReferences.length > 0 && (
+                  <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-2 mt-4">
+                    <h5 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Sources & Grounding
+                    </h5>
+                    <ul className="space-y-2 text-xs text-slate-600">
+                      {explanationResult.sourceReferences.map((ref, idx) => (
+                        <li key={idx} className="flex flex-col gap-0.5">
+                          <span className="font-semibold text-slate-700">
+                            {ref.materialTitle || "Course Material"} {ref.pageNumber ? `(Page ${ref.pageNumber})` : ""}
+                          </span>
+                          {ref.relevanceNote && <span className="text-slate-500">{ref.relevanceNote}</span>}
+                        </li>
                       ))}
                     </ul>
                   </div>

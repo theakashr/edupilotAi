@@ -18,6 +18,7 @@ import { aiService } from '@/services/ai/aiService';
 import { getUserProfile } from '@/lib/firebase/firestore';
 import { estimateStudentCourseMastery } from '@/services/learning/masteryEstimator';
 import { diagnoseLearningGaps } from '@/services/learning/learningGapEngine';
+import { predictLearningGaps } from '@/services/learning/predictionEngine';
 import type { StudentGapSummary, AssessmentAttempt, Concept, CourseMember } from '@/types';
 
 export async function GET(req: NextRequest) {
@@ -102,6 +103,7 @@ export async function GET(req: NextRequest) {
       // Calculate mastery
       const profile = estimateStudentCourseMastery(studentId, courseId, concepts, studentAttempts);
       const gapDiag = diagnoseLearningGaps(concepts, profile, []);
+      const predictionDiag = predictLearningGaps(concepts, profile);
 
       // Check if student needs baseline assessment
       const needsDiagnostic = studentAttempts.length === 0;
@@ -120,6 +122,18 @@ export async function GET(req: NextRequest) {
         if (conceptFailureTally[gap.conceptId]) {
           conceptFailureTally[gap.conceptId].failureCount++;
         }
+      }
+
+      // Extract predicted gaps
+      const predictedConcepts: StudentGapSummary['predictedConcepts'] = [];
+      for (const gap of predictionDiag.predictedGaps) {
+        predictedConcepts.push({
+          conceptId: gap.conceptId,
+          conceptName: gap.conceptName,
+          riskLevel: gap.riskLevel,
+          evidence: gap.evidence,
+          rootPrerequisiteConceptName: gap.rootPrerequisiteConceptName,
+        });
       }
 
       // Tally evaluated concepts for failure rates
@@ -150,7 +164,9 @@ export async function GET(req: NextRequest) {
         confidence: overallConfidence,
         activeGapCount: gapDiag.activeGaps.length,
         resolvedGapCount: gapDiag.resolvedGapCount,
+        predictedGapCount: predictionDiag.predictedGaps.length,
         strugglingConcepts,
+        predictedConcepts,
         needsDiagnostic,
         lastAttemptAt: studentAttempts.length > 0 ? studentAttempts[0].submittedAt : undefined,
       });

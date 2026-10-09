@@ -107,5 +107,7 @@ export interface AssessmentAttempt {
   answers?: Record<string, number>; // questionId -> selectedOptionIndex
   results?: QuestionAttemptResult[];
   conceptBreakdown?: ConceptDiagnosticSummary[];
+  submissionReason?: string;
+  warningCount?: number;
   createdAt: Timestamp;
 }

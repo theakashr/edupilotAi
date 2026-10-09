@@ -8,6 +8,7 @@ import {
   orderBy,
   limit,
   doc,
+  deleteDoc,
 } from 'firebase/firestore';
 import {
   courseCollection,
@@ -145,6 +146,22 @@ export const courseService = {
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to update course',
+      };
+    }
+  },
+
+  /**
+   * Delete a course permanently.
+   */
+  async deleteCourse(courseId: string): Promise<DbResult<void>> {
+    try {
+      const docRef = typedDoc<Course>(COLLECTIONS.COURSES, courseId);
+      await deleteDoc(docRef);
+      return { success: true, data: undefined };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to delete course',
       };
     }
   },
@@ -327,6 +344,22 @@ export const courseService = {
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to update member status',
+      };
+    }
+  },
+
+  /**
+   * Remove a student from a course entirely (unenroll).
+   */
+  async removeCourseMember(memberId: string): Promise<DbResult<void>> {
+    try {
+      const docRef = typedDoc<CourseMember>(COLLECTIONS.COURSE_MEMBERS, memberId);
+      await deleteDoc(docRef);
+      return { success: true, data: undefined };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to remove course member',
       };
     }
   },

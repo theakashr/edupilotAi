@@ -289,10 +289,19 @@ export function TeacherAdaptiveInsights({ courseId }: TeacherAdaptiveInsightsPro
                           <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">
                             Unassessed
                           </span>
-                        ) : student.activeGapCount > 0 ? (
-                          <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
-                            {student.activeGapCount} {student.activeGapCount === 1 ? "Gap" : "Gaps"}
-                          </span>
+                        ) : student.activeGapCount > 0 || student.predictedGapCount > 0 ? (
+                          <div className="flex gap-1">
+                            {student.activeGapCount > 0 && (
+                              <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                                {student.activeGapCount} {student.activeGapCount === 1 ? "Gap" : "Gaps"}
+                              </span>
+                            )}
+                            {student.predictedGapCount > 0 && (
+                              <span className="text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
+                                {student.predictedGapCount} Predicted
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">
                             On Track
@@ -314,7 +323,7 @@ export function TeacherAdaptiveInsights({ courseId }: TeacherAdaptiveInsightsPro
                       <span className="text-[10px] text-slate-400 block">Mastery Score</span>
                     </div>
 
-                    {student.strugglingConcepts.length > 0 && (
+                    {(student.strugglingConcepts.length > 0 || student.predictedConcepts?.length > 0) && (
                       <button
                         type="button"
                         onClick={() =>
@@ -336,26 +345,55 @@ export function TeacherAdaptiveInsights({ courseId }: TeacherAdaptiveInsightsPro
                 </div>
 
                 {/* Expanded Struggling Concepts Evidence */}
-                {expandedStudentId === student.studentId && student.strugglingConcepts.length > 0 && (
-                  <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-2 animate-in fade-in duration-150">
-                    <span className="text-xs font-bold uppercase tracking-wider text-amber-900 block">
-                      Specific Concept Difficulties &amp; Evidence:
-                    </span>
-                    <div className="space-y-2">
-                      {student.strugglingConcepts.map((sc) => (
-                        <div key={sc.conceptId} className="bg-white/90 p-3 rounded-xl border border-amber-200/80 text-xs space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-slate-900">{sc.conceptName}</span>
-                            <span className="font-mono text-amber-700 font-semibold">{sc.score}%</span>
-                          </div>
-                          <ul className="list-disc list-inside space-y-0.5 text-slate-500 text-[11px]">
-                            {sc.evidence.map((ev, i) => (
-                              <li key={i}>{ev}</li>
-                            ))}
-                          </ul>
+                {expandedStudentId === student.studentId && (
+                  <div className="space-y-3 mt-3 animate-in fade-in duration-150">
+                    {student.strugglingConcepts.length > 0 && (
+                      <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-amber-900 block">
+                          Specific Concept Difficulties &amp; Evidence:
+                        </span>
+                        <div className="space-y-2">
+                          {student.strugglingConcepts.map((sc) => (
+                            <div key={sc.conceptId} className="bg-white/90 p-3 rounded-xl border border-amber-200/80 text-xs space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-slate-900">{sc.conceptName}</span>
+                                <span className="font-mono text-amber-700 font-semibold">{sc.score}%</span>
+                              </div>
+                              <ul className="list-disc list-inside space-y-0.5 text-slate-500 text-[11px]">
+                                {sc.evidence.map((ev, i) => (
+                                  <li key={i}>{ev}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    )}
+
+                    {student.predictedConcepts?.length > 0 && (
+                      <div className="p-4 rounded-2xl bg-purple-50/70 border border-purple-200 space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-purple-900 block">
+                          Predicted Upcoming Difficulties (Early Warning):
+                        </span>
+                        <div className="space-y-2">
+                          {student.predictedConcepts.map((pc) => (
+                            <div key={pc.conceptId} className="bg-white/90 p-3 rounded-xl border border-purple-200/80 text-xs space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-slate-900">{pc.conceptName}</span>
+                                <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-bold uppercase">
+                                  {pc.riskLevel} Risk
+                                </span>
+                              </div>
+                              <ul className="list-disc list-inside space-y-0.5 text-slate-500 text-[11px]">
+                                {pc.evidence.map((ev, i) => (
+                                  <li key={i}>{ev}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

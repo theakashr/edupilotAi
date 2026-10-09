@@ -17,6 +17,7 @@ import { assessmentService } from '@/services/assessments/assessmentService';
 import { courseService } from '@/services/courses/courseService';
 import { learningService } from '@/services/learning/learningService';
 import { replanningService } from '@/services/learning/replanningService';
+import { notificationService } from '@/services/communication/notificationService';
 import { getUserProfile } from '@/lib/firebase/firestore';
 import { submitAssessmentSchema } from '@/lib/validation';
 
@@ -46,7 +47,7 @@ export async function POST(
       );
     }
 
-    const { answers } = parsed.data;
+    const { answers, submissionReason, warningCount } = parsed.data;
 
     // 2. Fetch User Profile & Authoritative Assessment
     const [profile, assRes] = await Promise.all([
@@ -148,6 +149,8 @@ export async function POST(
         answers,
         results: graded.results,
         conceptBreakdown: graded.conceptBreakdown,
+        submissionReason: submissionReason || 'student_submitted',
+        warningCount: warningCount || 0,
       }
     );
 
@@ -185,6 +188,28 @@ export async function POST(
         studentId: userId,
         courseId: assessment.courseId,
         triggerReason: `Completed assessment '${assessment.title}' (Score: ${graded.percentage}%)`,
+      });
+
+      // Send result notification
+      let feedbackTitle = "Let's Learn Together!";
+      if (graded.percentage === 100) {
+        feedbackTitle = "Perfect!";
+      } else if (graded.percentage >= 80) {
+        feedbackTitle = "Excellent!";
+      } else if (graded.percentage >= 60) {
+        feedbackTitle = "Good Work!";
+      } else if (graded.percentage >= 40) {
+        feedbackTitle = "Keep Practicing!";
+      } else if (graded.percentage > 0) {
+        feedbackTitle = "Don't Give Up!";
+      }
+
+      await notificationService.createNotification({
+        recipientId: userId,
+        type: 'feedback',
+        title: `Quiz Completed — ${feedbackTitle}`,
+        message: `You scored ${graded.score}/${graded.totalMarks} (${Math.round(graded.percentage)}%) in ${assessment.courseTitle || 'your course'}.`,
+        referenceId: attemptId,
       });
     } catch (logErr) {
       console.warn('Non-fatal error logging activity, learning profile, or replanning:', logErr);

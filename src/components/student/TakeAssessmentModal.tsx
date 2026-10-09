@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   X,
   Sparkles,
@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Loader2,
   ArrowRight,
+  ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import type {
@@ -19,6 +20,7 @@ import type {
   ConceptDiagnosticSummary,
   AssessmentAttempt,
 } from "@/types";
+import { CameraMonitor } from "./CameraMonitor";
 
 interface TakeAssessmentModalProps {
   isOpen: boolean;
@@ -51,6 +53,13 @@ export function TakeAssessmentModal({
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [isReviewStep, setIsReviewStep] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Proctoring state
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const [isAssessmentStarted, setIsAssessmentStarted] = useState(false);
+  const [isLockedByProctoring, setIsLockedByProctoring] = useState(false);
+  const warningCountRef = useRef(0);
+  const [warningMessages, setWarningMessages] = useState<string[]>([]);
 
   // Results state
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -149,7 +158,7 @@ export function TakeAssessmentModal({
   // Keyboard navigation shortcuts
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (!isOpen || isSubmitted || isReviewStep || questions.length === 0) return;
+      if (!isOpen || isSubmitted || isReviewStep || questions.length === 0 || isLockedByProctoring || !isAssessmentStarted) return;
 
       const q = questions[currentIndex];
       if (!q) return;
@@ -170,7 +179,7 @@ export function TakeAssessmentModal({
         }
       }
     },
-    [isOpen, isSubmitted, isReviewStep, currentIndex, questions]
+    [isOpen, isSubmitted, isReviewStep, currentIndex, questions, isLockedByProctoring, isAssessmentStarted]
   );
 
   useEffect(() => {
@@ -187,11 +196,11 @@ export function TakeAssessmentModal({
     questions.length > 0 ? Math.round(((currentIndex + 1) / questions.length) * 100) : 0;
 
   const handleSelectOption = (optIndex: number) => {
-    if (!currentQ) return;
+    if (!currentQ || isLockedByProctoring) return;
     setAnswers((prev) => ({ ...prev, [currentQ.id]: optIndex }));
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (reason: string = "student_submitted", finalWarnings: number = warningCountRef.current) => {
     if (!user?.uid || isSubmitting) return;
 
     try {
@@ -207,6 +216,8 @@ export function TakeAssessmentModal({
         body: JSON.stringify({
           userId: user.uid,
           answers,
+          submissionReason: reason,
+          warningCount: finalWarnings,
         }),
       });
 
@@ -241,6 +252,19 @@ export function TakeAssessmentModal({
       setIsSubmitting(false);
     }
   };
+
+  const handleWarning = useCallback((count: number, message: string) => {
+    warningCountRef.current = count;
+    setWarningMessages((prev) => [...prev, message]);
+  }, []);
+
+  const handleMaxWarningsReached = useCallback(() => {
+    setIsLockedByProctoring(true);
+    // Use setTimeout to ensure state updates propagate, but submit immediately
+    setTimeout(() => {
+      handleSubmit("auto_submitted_policy_violation", warningCountRef.current);
+    }, 0);
+  }, [handleSubmit]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-3 sm:p-6 overflow-y-auto">
@@ -316,16 +340,49 @@ export function TakeAssessmentModal({
             <div className="py-20 text-center text-slate-400 text-sm">
               No questions found for this assessment.
             </div>
+          ) : !isAssessmentStarted && !isSubmitted ? (
+            /* Pre-Assessment Camera Setup */
+            <div className="max-w-2xl mx-auto py-8 flex flex-col items-center text-center space-y-6">
+               <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center border border-indigo-100 text-indigo-600">
+                  <ShieldCheck className="w-8 h-8" />
+               </div>
+               <div>
+                  <h3 className="text-xl font-bold text-slate-900">Proctoring Setup Required</h3>
+                  <p className="text-sm text-slate-500 mt-2 max-w-md mx-auto">
+                    This assessment is monitored. You must grant camera access and keep your face visible throughout the assessment. You will be automatically submitted if you receive 3 warnings for looking away.
+                  </p>
+               </div>
+               
+               <div className="w-full max-w-sm mx-auto text-left">
+                 <CameraMonitor
+                   isMonitoringActive={false}
+                   onWarning={handleWarning}
+                   onMaxWarningsReached={handleMaxWarningsReached}
+                   onCameraReady={() => setIsCameraReady(true)}
+                 />
+               </div>
+
+               <button
+                 type="button"
+                 disabled={!isCameraReady}
+                 onClick={() => setIsAssessmentStarted(true)}
+                 className="inline-flex items-center gap-2 px-8 py-3 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 shadow-md shadow-indigo-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+               >
+                 <span>Begin Assessment</span>
+                 <ArrowRight className="w-4 h-4" />
+               </button>
+            </div>
           ) : !isSubmitted && !isReviewStep ? (
             /* Active Question Taking View */
-            <div className="max-w-2xl mx-auto space-y-6">
-              {currentIndex === 0 && instructions && (
-                <div className="p-3.5 bg-indigo-50/70 border border-indigo-100 rounded-2xl text-xs text-indigo-900 leading-relaxed">
-                  <span className="font-semibold text-indigo-950">Instructions: </span>
-                  {instructions}
-                </div>
-              )}
-              {/* Question metadata badge */}
+            <div className="flex flex-col md:flex-row gap-8 max-w-5xl mx-auto">
+              <div className="flex-1 space-y-6">
+                {currentIndex === 0 && instructions && (
+                  <div className="p-3.5 bg-indigo-50/70 border border-indigo-100 rounded-2xl text-xs text-indigo-900 leading-relaxed">
+                    <span className="font-semibold text-indigo-950">Instructions: </span>
+                    {instructions}
+                  </div>
+                )}
+                {/* Question metadata badge */}
               <div className="flex items-center justify-between">
                 {currentQ.conceptName ? (
                   <span className="text-xs font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100">
@@ -392,7 +449,8 @@ export function TakeAssessmentModal({
                   return (
                     <button
                       key={q.id}
-                      onClick={() => setCurrentIndex(idx)}
+                      onClick={() => !isLockedByProctoring && setCurrentIndex(idx)}
+                      disabled={isLockedByProctoring}
                       title={`Jump to question ${idx + 1}`}
                       className={`h-2.5 rounded-full transition-all duration-200 ${
                         isCurrent
@@ -407,6 +465,29 @@ export function TakeAssessmentModal({
                 })}
               </div>
             </div>
+            {/* Sidebar Proctoring */}
+            <div className="w-full md:w-64 shrink-0 space-y-4">
+              <CameraMonitor
+                isMonitoringActive={isAssessmentStarted && !isLockedByProctoring}
+                onWarning={handleWarning}
+                onMaxWarningsReached={handleMaxWarningsReached}
+              />
+              {warningMessages.length > 0 && (
+                 <div className="bg-red-50/50 border border-red-200 rounded-xl p-3 space-y-2">
+                    <span className="text-xs font-bold text-red-700 flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5" /> Recent Warnings
+                    </span>
+                    <div className="space-y-1">
+                      {warningMessages.slice(-3).map((msg, i) => (
+                        <p key={i} className="text-[10px] text-red-600 leading-tight">
+                           &bull; {msg}
+                        </p>
+                      ))}
+                    </div>
+                 </div>
+              )}
+            </div>
+          </div>
           ) : isReviewStep && !isSubmitted ? (
             /* Pre-submission Confirmation View */
             <div className="max-w-xl mx-auto py-6 text-center space-y-6">
@@ -457,7 +538,7 @@ export function TakeAssessmentModal({
                 <button
                   type="button"
                   disabled={isSubmitting}
-                  onClick={handleSubmit}
+                  onClick={() => handleSubmit()}
                   className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 shadow-md shadow-indigo-600/20 transition-all hover:scale-[1.01] disabled:opacity-50"
                 >
                   {isSubmitting ? (
@@ -477,6 +558,19 @@ export function TakeAssessmentModal({
           ) : (
             /* Detailed Calibrated Results View */
             <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+              
+              {isLockedByProctoring && (
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
+                   <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                   <div>
+                      <h4 className="text-sm font-bold text-red-900">Auto-Submitted: Policy Violation</h4>
+                      <p className="text-sm text-red-700 mt-1">
+                        Your assessment was automatically submitted because you reached the maximum number of proctoring warnings (looking away from the camera).
+                      </p>
+                   </div>
+                </div>
+              )}
+
               <div className="text-center space-y-2">
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
                   <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
@@ -502,6 +596,36 @@ export function TakeAssessmentModal({
                     </p>
                   </div>
                 </div>
+              </div>
+
+              {/* Personalized Feedback */}
+              <div className="text-center max-w-md mx-auto space-y-2">
+                <h4 className="text-xl font-bold text-slate-900">
+                  {percentage === 100
+                    ? "Perfect!"
+                    : percentage >= 80
+                    ? "Excellent!"
+                    : percentage >= 60
+                    ? "Good Work!"
+                    : percentage >= 40
+                    ? "Keep Practicing!"
+                    : percentage > 0
+                    ? "Don't Give Up!"
+                    : "Let's Learn Together!"}
+                </h4>
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  {percentage === 100
+                    ? "Outstanding work! You answered every question correctly. Keep it up!"
+                    : percentage >= 80
+                    ? "Great job! You have a strong understanding of this topic. Review the one question you missed to reach a perfect score."
+                    : percentage >= 60
+                    ? "You're making progress! Review the concepts you missed and try again."
+                    : percentage >= 40
+                    ? "You're building your understanding. Revisit the lesson and practice a few more questions."
+                    : percentage > 0
+                    ? "Every attempt is a learning opportunity. Review the basics and give it another try."
+                    : "It's okay to start here. Revisit the lesson, review the examples, and try the quiz again."}
+                </p>
               </div>
 
               {/* Concept Diagnostic Breakdown */}
@@ -637,11 +761,11 @@ export function TakeAssessmentModal({
         </div>
 
         {/* Modal Footer (Question Navigation) */}
-        {!isSubmitted && !isReviewStep && questions.length > 0 && (
+        {!isSubmitted && isAssessmentStarted && !isReviewStep && questions.length > 0 && (
           <div className="px-6 py-4 bg-white/95 backdrop-blur-sm border-t border-slate-200/80 flex items-center justify-between sticky bottom-0 z-20">
             <button
               onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
-              disabled={currentIndex === 0}
+              disabled={currentIndex === 0 || isLockedByProctoring}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -655,7 +779,8 @@ export function TakeAssessmentModal({
             {currentIndex < questions.length - 1 ? (
               <button
                 onClick={() => setCurrentIndex((prev) => prev + 1)}
-                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm shadow-indigo-600/20 transition-all hover:scale-[1.01]"
+                disabled={isLockedByProctoring}
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm shadow-indigo-600/20 transition-all hover:scale-[1.01] disabled:opacity-50"
               >
                 Next
                 <ChevronRight className="w-4 h-4" />
@@ -663,7 +788,8 @@ export function TakeAssessmentModal({
             ) : (
               <button
                 onClick={() => setIsReviewStep(true)}
-                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-md shadow-indigo-600/20 transition-all hover:scale-[1.01]"
+                disabled={isLockedByProctoring}
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-md shadow-indigo-600/20 transition-all hover:scale-[1.01] disabled:opacity-50"
               >
                 Review &amp; Finish
                 <ChevronRight className="w-4 h-4" />

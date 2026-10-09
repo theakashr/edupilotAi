@@ -100,11 +100,13 @@ export const conceptService = {
     try {
       const q = query(
         conceptCollection(),
-        where('courseId', '==', courseId),
-        orderBy('name', 'asc')
+        where('courseId', '==', courseId)
       );
       const snapshot = await getDocs(q);
       let concepts = snapshot.docs.map((d) => d.data());
+      
+      // Sort manually to avoid FAILED_PRECONDITION on missing index
+      concepts.sort((a, b) => a.name.localeCompare(b.name));
 
       if (!options?.includeArchived) {
         concepts = concepts.filter((c) => c.status !== 'archived');

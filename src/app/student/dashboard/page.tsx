@@ -93,7 +93,7 @@ export default function StudentDashboardPage() {
           conceptService.listCourseConcepts(courseId),
           learningService.getLearningProfile(user.uid, courseId),
           learningService.listStudentActivities(user.uid, courseId, 30),
-          assessmentService.listCourseAssessments(courseId),
+          assessmentService.listPublishedCourseAssessments(courseId),
         ]);
 
         if (ignore) return;
@@ -117,7 +117,7 @@ export default function StudentDashboardPage() {
         }
 
         if (assRes.success && assRes.data) {
-          const published = assRes.data.filter((a) => a.status === "published");
+          const published = assRes.data;
           setPublishedAssessments(published);
 
           // Find completed attempt
@@ -525,13 +525,13 @@ export default function StudentDashboardPage() {
               const courseId = selectedCourse.id;
               Promise.all([
                 learningService.getLearningProfile(user.uid, courseId),
-                assessmentService.listCourseAssessments(courseId),
+                assessmentService.listPublishedCourseAssessments(courseId),
               ]).then(([profRes, assRes]) => {
                 if (profRes.success && profRes.data) {
                   setLearningProfile(profRes.data);
                 }
                 if (assRes.success && assRes.data) {
-                  const published = assRes.data.filter((a) => a.status === "published");
+                  const published = assRes.data;
                   setPublishedAssessments(published);
                 }
               });

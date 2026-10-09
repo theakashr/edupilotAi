@@ -9,6 +9,7 @@ import { communicationService } from "@/services/communication/communicationServ
 import { TeacherNav } from "@/components/teacher/TeacherNav";
 import { CourseWorkspaceNav } from "@/components/teacher/CourseWorkspaceNav";
 import { EditCourseModal } from "@/components/teacher/EditCourseModal";
+import { ClassPerformanceAnalytics } from "@/components/teacher/ClassPerformanceAnalytics";
 import type { Course, Material, Announcement } from "@/types";
 import {
   Users,
@@ -242,6 +243,11 @@ export default function CourseWorkspacePage({ params }: PageProps) {
               <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
             </Link>
           </div>
+        </section>
+
+        {/* Class Performance Analytics */}
+        <section aria-label="Class performance analytics" className="mb-8">
+          <ClassPerformanceAnalytics courseId={course.id} />
         </section>
 
         {/* Two-Column Overview Layout */}

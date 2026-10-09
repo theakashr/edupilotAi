@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -37,12 +37,23 @@ function LoginPageContent() {
   const activeRole: "student" | "teacher" =
     searchParams.get("role") === "teacher" ? "teacher" : "student";
 
+  const activeRoleRef = useRef(activeRole);
+  useEffect(() => {
+    activeRoleRef.current = activeRole;
+  }, [activeRole]);
+
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [roleNotice, setRoleNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
+
+  // Clear errors when switching roles via browser navigation
+  useEffect(() => {
+    setError(null);
+    setRoleNotice(null);
+  }, [activeRole]);
 
   const { user, profile: authProfile, role, loading } = useAuth();
 
@@ -116,7 +127,7 @@ function LoginPageContent() {
       const trustedRole = userProfile.role;
 
       // Strict Teacher Portal Boundary for Google OAuth
-      if (activeRole === "teacher") {
+      if (activeRoleRef.current === "teacher") {
         if (trustedRole !== "teacher") {
           // Immediately revoke session so unauthorized student is signed out
           await logoutUser();
@@ -175,7 +186,7 @@ function LoginPageContent() {
       const trustedRole = profile.role;
 
       // Strict Teacher Portal Verification
-      if (activeRole === "teacher") {
+      if (activeRoleRef.current === "teacher") {
         if (trustedRole !== "teacher") {
           // Immediately revoke session so unauthorized student is signed out
           await logoutUser();
@@ -233,12 +244,13 @@ function LoginPageContent() {
                 type="button"
                 role="tab"
                 aria-selected={!isTeacher}
+                disabled={isLoading || isGoogleLoading}
                 onClick={() => handleRoleChange("student")}
                 className={`flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
                   !isTeacher
                     ? "bg-white text-indigo-700 shadow-xs border border-slate-200/80"
                     : "text-slate-500 hover:text-slate-800"
-                }`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 <GraduationCap className="w-4 h-4" />
                 <span>Student</span>
@@ -248,12 +260,13 @@ function LoginPageContent() {
                 type="button"
                 role="tab"
                 aria-selected={isTeacher}
+                disabled={isLoading || isGoogleLoading}
                 onClick={() => handleRoleChange("teacher")}
                 className={`flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
                   isTeacher
                     ? "bg-white text-violet-700 shadow-xs border border-slate-200/80"
                     : "text-slate-500 hover:text-slate-800"
-                }`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 <Presentation className="w-4 h-4" />
                 <span>Teacher</span>
@@ -294,7 +307,7 @@ function LoginPageContent() {
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
               <div className="flex-1">
                 <p className="font-semibold">{error}</p>
-                {error.includes("Student Portal") && (
+                {error.includes("Teacher Portal") && (
                   <button
                     type="button"
                     onClick={() => handleRoleChange("student")}

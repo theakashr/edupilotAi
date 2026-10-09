@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { logoutUser } from "@/services/auth/authService";
 import { StudentProfileModal } from "@/components/student/StudentProfileModal";
+import { StudentNotificationCenter } from "@/components/student/notifications/StudentNotificationCenter";
 import { Sparkles, LogOut } from "lucide-react";
 
 export function StudentMobileHeader() {
@@ -37,6 +38,7 @@ export function StudentMobileHeader() {
         </Link>
 
         <div className="flex items-center gap-2.5">
+          <StudentNotificationCenter />
           <button
             type="button"
             onClick={() => setIsProfileOpen(true)}

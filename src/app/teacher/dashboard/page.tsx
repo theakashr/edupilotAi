@@ -23,6 +23,8 @@ import {
   File,
   Layers,
   ShieldCheck,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 
 export default function TeacherDashboard() {
@@ -36,6 +38,32 @@ export default function TeacherDashboard() {
   const [totalMaterials, setTotalMaterials] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingCourseId, setDeletingCourseId] = useState<string | null>(null);
+
+  const handleDeleteCourse = async (e: React.MouseEvent, courseId: string, courseTitle: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!confirm(`Are you sure you want to permanently delete the course "${courseTitle}"? This cannot be undone.`)) {
+      return;
+    }
+    
+    setDeletingCourseId(courseId);
+    try {
+      const res = await courseService.deleteCourse(courseId);
+      if (res.success) {
+        setCourses((prev) => prev.filter((c) => c.id !== courseId));
+        setTotalStudents((prev) => prev - (courseCounts[courseId]?.students || 0));
+        setTotalMaterials((prev) => prev - (courseCounts[courseId]?.materials || 0));
+      } else {
+        alert(res.error || "Failed to delete course");
+      }
+    } catch (err: any) {
+      alert(err.message || "An error occurred");
+    } finally {
+      setDeletingCourseId(null);
+    }
+  };
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -402,23 +430,39 @@ export default function TeacherDashboard() {
                       <div>
                         {/* Tags Header */}
                         <div className="flex items-center justify-between gap-2 mb-3">
-                          <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50/80 px-2 py-0.5 rounded-md border border-indigo-100/70 truncate max-w-[140px]">
-                            {course.subject || "General"}
-                          </span>
-                          <span
-                            className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${
-                              isDraft
-                                ? "bg-amber-50 text-amber-700 border-amber-200/70"
-                                : "bg-emerald-50 text-emerald-700 border-emerald-200/70"
-                            }`}
-                          >
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50/80 px-2 py-0.5 rounded-md border border-indigo-100/70 truncate max-w-[140px]">
+                              {course.subject || "General"}
+                            </span>
                             <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                isDraft ? "bg-amber-500" : "bg-emerald-500"
+                              className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                                isDraft
+                                  ? "bg-amber-50 text-amber-700 border-amber-200/70"
+                                  : "bg-emerald-50 text-emerald-700 border-emerald-200/70"
                               }`}
-                            />
-                            {course.status}
-                          </span>
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  isDraft ? "bg-amber-500" : "bg-emerald-500"
+                                }`}
+                              />
+                              {course.status}
+                            </span>
+                          </div>
+                          
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteCourse(e, course.id, course.title)}
+                            disabled={deletingCourseId === course.id}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50 z-10"
+                            title="Delete Course"
+                          >
+                            {deletingCourseId === course.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
                         </div>
 
                         {/* Title */}

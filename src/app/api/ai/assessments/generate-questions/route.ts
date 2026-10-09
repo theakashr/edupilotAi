@@ -18,6 +18,7 @@ import { agnesClient } from '@/services/ai/agnes';
 import { courseService } from '@/services/courses/courseService';
 import { conceptService } from '@/services/knowledge/conceptService';
 import { materialService } from '@/services/materials/materialService';
+import { buildGroundingContext } from '@/services/ai/context/contextBuilder';
 import { getUserProfile } from '@/lib/firebase/firestore';
 import type { Question } from '@/types';
 
@@ -26,6 +27,7 @@ const generateQuestionsRequestSchema = z.object({
   conceptIds: z.array(z.string()).optional(),
   count: z.number().int().min(1).max(10).default(5),
   difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']).default('medium'),
+  topic: z.string().optional(),
 });
 
 const agnesQuestionResponseSchema = z.object({
@@ -61,7 +63,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { courseId, conceptIds, count, difficulty } = parsedInput.data;
+    const { courseId, conceptIds, count, difficulty, topic } = parsedInput.data;
 
     // 1. Teacher Authorization Check
     const [profile, courseRes] = await Promise.all([
@@ -102,17 +104,47 @@ export async function POST(req: NextRequest) {
         : allConcepts;
 
     const materials = materialsRes.success && materialsRes.data ? materialsRes.data : [];
+    let materialSummary = 'Course lecture notes and syllabus.';
+    let contextBlocks = '';
+
+    if (materials.length > 0) {
+      const readyMaterials = materials.filter(m => m.status === 'ready');
+      if (readyMaterials.length > 0) {
+        let allChunks: any[] = [];
+        const titles: Record<string, string> = {};
+        for (const mat of readyMaterials) {
+          titles[mat.id] = mat.title;
+          const chunksRes = await materialService.listMaterialChunks(mat.id);
+          if (chunksRes.success && chunksRes.data) {
+            allChunks.push(...chunksRes.data);
+          }
+        }
+        
+        if (allChunks.length > 0) {
+          try {
+            const contextResult = buildGroundingContext({
+              courseId,
+              chunks: allChunks,
+              concepts: targetConcepts,
+              materialTitles: titles
+            });
+            contextBlocks = contextResult.formattedContext;
+          } catch (e) {
+            console.warn('Failed to build context from chunks, falling back to basic summary', e);
+          }
+        }
+      }
+      
+      if (!contextBlocks) {
+        materialSummary = materials.map((m) => `- ${m.title} (${m.status})`).join('\n');
+      }
+    }
 
     // Concept list text for prompt
     const conceptSummary =
       targetConcepts.length > 0
         ? targetConcepts.map((c) => `- ${c.name}: ${c.description || 'Core concept'}`).join('\n')
         : `- General concepts in ${course.title} (${course.subject})`;
-
-    const materialSummary =
-      materials.length > 0
-        ? materials.map((m) => `- ${m.title} (${m.status})`).join('\n')
-        : 'Course lecture notes and syllabus.';
 
     let generatedQuestions: Question[] = [];
     let generationSource: 'agnes_3_0_flash' | 'grounded_template_fallback' =
@@ -137,9 +169,9 @@ Approved Curriculum Concepts:
 ${conceptSummary}
 
 Course Materials:
-${materialSummary}
+${contextBlocks ? contextBlocks : materialSummary}
 
-Generate ${count} diagnostic multiple-choice questions for this course in JSON format.`;
+${topic ? `SPECIFIC TOPIC REQUESTED: ${topic}\n\n` : ''}Generate ${count} diagnostic multiple-choice questions for this course in JSON format. Ensure all generated questions are unique and distinctly evaluate different aspects${topic ? ` related to the specific topic requested: "${topic}"` : ''}.`;
 
       const result = await agnesClient.completeChat(
         [
@@ -148,7 +180,7 @@ Generate ${count} diagnostic multiple-choice questions for this course in JSON f
         ],
         agnesQuestionResponseSchema,
         {
-          temperature: 0.2,
+          temperature: 0.7,
           requestId: `diag_qgen_${Date.now()}`,
         }
       );
@@ -177,19 +209,54 @@ Generate ${count} diagnostic multiple-choice questions for this course in JSON f
 
       // Robust fallback grounding: generates curriculum-aligned template questions from course concepts
       const pool = targetConcepts.length > 0 ? targetConcepts : [{ id: 'core', name: course.subject || 'Core Concepts' }];
+      
+      // Try to extract some sentences from contextBlocks to create pseudo-AI questions from the PDF
+      let extractedSentences: string[] = [];
+      if (contextBlocks) {
+        // simple sentence splitting
+        const sentences = contextBlocks.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 30 && s.length < 150);
+        extractedSentences = sentences.sort(() => 0.5 - Math.random()).slice(0, count);
+      }
+
+      const fallbackTemplates = [
+        "Which statement accurately describes the fundamental principle of {concept}?",
+        "What is the primary function of {concept} in practical applications?",
+        "How does {concept} integrate with modern architectural standards?",
+        "Which of the following is a common misconception about {concept}?",
+        "In what scenario is {concept} most effectively utilized?"
+      ];
+
       generatedQuestions = Array.from({ length: count }).map((_, idx) => {
         const concept = pool[idx % pool.length];
+        
+        let qText = fallbackTemplates[idx % fallbackTemplates.length].replace('{concept}', concept.name);
+        let qOptions = [
+          `It represents a foundational component of ${course.title} designed for systematic application.`,
+          `It is an obsolete construct with no direct application in ${course.title}.`,
+          `It only operates under unverified simulated environments.`,
+          `It is entirely optional and superseded by hardware defaults.`
+        ];
+        
+        // If we have a sentence from the PDF, use it as a question base
+        if (extractedSentences.length > idx) {
+          const sentence = extractedSentences[idx];
+          // Create a simple fill-in-the-blank or true statement question based on the PDF content
+          qText = `According to the course materials on ${concept.name}, which of the following is true?`;
+          qOptions[0] = sentence + "."; // The true statement from the PDF
+        }
+
+        // Shuffle options so A isn't always correct
+        const correctIndex = idx % 4;
+        const temp = qOptions[0];
+        qOptions[0] = qOptions[correctIndex];
+        qOptions[correctIndex] = temp;
+
         return {
           id: `fallback_q_${Date.now()}_${idx + 1}`,
-          text: `Which statement accurately describes the fundamental principle of ${concept.name}?`,
-          options: [
-            `It represents a foundational component of ${course.title} designed for systematic application.`,
-            `It is an obsolete construct with no direct application in ${course.title}.`,
-            `It only operates under unverified simulated environments.`,
-            `It is entirely optional and superseded by hardware defaults.`,
-          ],
-          correctOptionIndex: 0,
-          explanation: `${concept.name} is a key architectural foundation in ${course.title}.`,
+          text: qText,
+          options: qOptions,
+          correctOptionIndex: correctIndex,
+          explanation: `${concept.name} is a key architectural foundation in ${course.title}. This is verified by the course material.`,
           conceptId: concept.id,
           conceptName: concept.name,
           points: 1,

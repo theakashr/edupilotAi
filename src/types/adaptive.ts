@@ -68,6 +68,8 @@ export interface IdentifiedLearningGap {
   /** If downstream gap, the upstream prerequisite that caused the block */
   rootPrerequisiteConceptId?: string;
   rootPrerequisiteConceptName?: string;
+  /** True if this is a predicted future gap (not yet observed) */
+  predicted?: boolean;
 }
 
 /**
@@ -121,12 +123,22 @@ export interface StudentGapSummary {
   confidence: MasteryConfidence;
   activeGapCount: number;
   resolvedGapCount: number;
+  predictedGapCount: number;
   strugglingConcepts: Array<{
     conceptId: string;
     conceptName: string;
     score: number;
     riskLevel: RiskLevel;
     evidence: string[];
+    predicted?: boolean;
+    rootPrerequisiteConceptName?: string;
+  }>;
+  predictedConcepts: Array<{
+    conceptId: string;
+    conceptName: string;
+    riskLevel: RiskLevel;
+    evidence: string[];
+    rootPrerequisiteConceptName?: string;
   }>;
   needsDiagnostic: boolean;
   lastAttemptAt?: Timestamp | string;

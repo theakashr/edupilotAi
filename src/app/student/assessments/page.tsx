@@ -81,11 +81,11 @@ export default function StudentAssessmentsPage() {
         const courseId = selectedCourse.id;
 
         // Fetch published course assessments
-        const assRes = await assessmentService.listCourseAssessments(courseId);
+        const assRes = await assessmentService.listPublishedCourseAssessments(courseId);
         if (ignore) return;
         const published =
           assRes.success && assRes.data
-            ? assRes.data.filter((a) => a.status === "published")
+            ? assRes.data
             : [];
 
         setAssessments(published);

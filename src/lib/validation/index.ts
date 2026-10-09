@@ -179,10 +179,14 @@ export const completeAssessmentAttemptSchema = z.object({
   percentage: z.number().min(0).max(100),
   status: z.literal('completed'),
   answers: z.record(z.string(), z.number()).optional(),
+  submissionReason: z.string().optional(),
+  warningCount: z.number().int().nonnegative().optional(),
 });
 
 export const submitAssessmentSchema = z.object({
   answers: z.record(z.string(), z.number().int().min(0)),
+  submissionReason: z.string().optional(),
+  warningCount: z.number().int().nonnegative().optional(),
 });
 
 export type QuestionInput = z.infer<typeof questionSchema>;

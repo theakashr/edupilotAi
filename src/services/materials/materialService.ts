@@ -292,11 +292,11 @@ export const materialService = {
     try {
       const q = query(
         materialChunkCollection(),
-        where('materialId', '==', materialId),
-        orderBy('chunkIndex', 'asc')
+        where('materialId', '==', materialId)
       );
       const snapshot = await getDocs(q);
       const chunks = snapshot.docs.map((d) => d.data());
+      chunks.sort((a, b) => a.chunkIndex - b.chunkIndex);
       return { success: true, data: chunks };
     } catch (err: unknown) {
       return {
