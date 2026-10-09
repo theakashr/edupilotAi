@@ -38,8 +38,14 @@ export type {
   AssessmentDifficulty,
   AssessmentStatus,
   Assessment,
+  Question,
+  SanitizedQuestion,
+  AssessmentFeedbackSettings,
   AttemptStatus,
   AssessmentAttempt,
+  QuestionAttemptResult,
+  ConceptDiagnosticStatus,
+  ConceptDiagnosticSummary,
 } from './assessment';
 
 // ─── Knowledge & Concept Mapping ──────────────────────────────────────────────

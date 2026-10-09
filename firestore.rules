@@ -128,7 +128,11 @@ service cloud.firestore {
     // ─── Assessments & Attempts ─────────────────────────────────────────────
 
     match /assessments/{assessmentId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource.data.status == 'published' || 
+        isCourseTeacher(resource.data.courseId) ||
+        isAdmin()
+      );
       allow create: if isTeacher() && 
                     request.resource.data.teacherId == request.auth.uid &&
                     isCourseTeacher(request.resource.data.courseId);
@@ -140,8 +144,14 @@ service cloud.firestore {
         resource.data.studentId == request.auth.uid || 
         isCourseTeacher(resource.data.courseId)
       );
-      allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
-      allow update: if isStudent() && resource.data.studentId == request.auth.uid;
+      allow create: if isAuthenticated() && (
+        request.resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(request.resource.data.courseId)
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || 
+        isCourseTeacher(resource.data.courseId)
+      );
       allow delete: if false;
     }
 

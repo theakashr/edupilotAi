@@ -89,14 +89,12 @@ export function CourseWorkspaceNav({ course, onEditClick }: CourseWorkspaceNavPr
       icon: Megaphone,
       disabled: false,
     },
-    // Future Phase Placeholders (Explicitly non-functional per Phase 4 boundary)
     {
       label: "Assessments",
-      href: "#",
-      active: false,
+      href: `${basePath}/assessments`,
+      active: pathname.startsWith(`${basePath}/assessments`),
       icon: CheckSquare,
-      disabled: true,
-      phase: "Phase 7",
+      disabled: false,
     },
     {
       label: "AI Insights",

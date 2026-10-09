@@ -7,7 +7,8 @@ import { courseService } from "@/services/courses/courseService";
 import { materialService } from "@/services/materials/materialService";
 import { conceptService } from "@/services/knowledge/conceptService";
 import { learningService } from "@/services/learning/learningService";
-import type { Course, Concept, Material, LearningProfile } from "@/types";
+import { assessmentService } from "@/services/assessments/assessmentService";
+import type { Course, Concept, Material, LearningProfile, Assessment, AssessmentAttempt } from "@/types";
 import {
   Sparkles,
   ArrowRight,
@@ -20,7 +21,7 @@ import {
   Award,
   BookOpen,
 } from "lucide-react";
-import { DiagnosticAssessmentModal } from "@/components/student/DiagnosticAssessmentModal";
+import { TakeAssessmentModal } from "@/components/student/TakeAssessmentModal";
 import { NoEnrolledCourses } from "@/components/student/NoEnrolledCourses";
 
 export default function StudentDashboardPage() {
@@ -29,12 +30,14 @@ export default function StudentDashboardPage() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
   const [courseDataLoading, setCourseDataLoading] = useState(false);
-  const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
+  const [activeAssessmentId, setActiveAssessmentId] = useState<string | null>(null);
 
   // Real course-scoped data
   const [materials, setMaterials] = useState<Material[]>([]);
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [learningProfile, setLearningProfile] = useState<LearningProfile | null>(null);
+  const [publishedAssessments, setPublishedAssessments] = useState<Assessment[]>([]);
+  const [latestAttempt, setLatestAttempt] = useState<AssessmentAttempt | null>(null);
   const [streakDays, setStreakDays] = useState(0);
 
   // Greet based on time of day and authentic student profile
@@ -88,11 +91,12 @@ export default function StudentDashboardPage() {
         setCourseDataLoading(true);
         const courseId = selectedCourse.id;
 
-        const [matRes, conRes, profRes, actRes] = await Promise.all([
+        const [matRes, conRes, profRes, actRes, assRes] = await Promise.all([
           materialService.listCourseMaterials(courseId),
           conceptService.listCourseConcepts(courseId),
           learningService.getLearningProfile(user.uid, courseId),
           learningService.listStudentActivities(user.uid, courseId, 30),
+          assessmentService.listCourseAssessments(courseId),
         ]);
 
         if (ignore) return;
@@ -113,6 +117,28 @@ export default function StudentDashboardPage() {
           setLearningProfile(profRes.data);
         } else {
           setLearningProfile(null);
+        }
+
+        if (assRes.success && assRes.data) {
+          const published = assRes.data.filter((a) => a.status === "published");
+          setPublishedAssessments(published);
+
+          // Find completed attempt
+          let latestComp: AssessmentAttempt | null = null;
+          for (const ass of published) {
+            const attRes = await assessmentService.listStudentAttempts(ass.id, user.uid);
+            if (attRes.success && attRes.data) {
+              const comp = attRes.data.find((a) => a.status === "completed");
+              if (comp) {
+                latestComp = comp;
+                break;
+              }
+            }
+          }
+          setLatestAttempt(latestComp);
+        } else {
+          setPublishedAssessments([]);
+          setLatestAttempt(null);
         }
 
         if (actRes.success && actRes.data) {
@@ -311,14 +337,24 @@ export default function StudentDashboardPage() {
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
               </Link>
 
-              <button
-                type="button"
-                onClick={() => setIsDiagnosticOpen(true)}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm backdrop-blur-md border border-white/10 transition-colors"
-              >
-                <Award className="w-4 h-4 text-indigo-300" />
-                <span>{hasMastery ? "Retake Diagnostic" : "Start Diagnostic"}</span>
-              </button>
+              {publishedAssessments.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveAssessmentId(publishedAssessments[0].id)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm backdrop-blur-md border border-white/10 transition-colors"
+                >
+                  <Award className="w-4 h-4 text-indigo-300" />
+                  <span>{latestAttempt ? "Review Diagnostic" : "Start Diagnostic"}</span>
+                </button>
+              ) : (
+                <Link
+                  href="/student/assessments"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm backdrop-blur-md border border-white/10 transition-colors"
+                >
+                  <Award className="w-4 h-4 text-indigo-300" />
+                  <span>View Assessments</span>
+                </Link>
+              )}
             </div>
           </div>
 
@@ -546,64 +582,95 @@ export default function StudentDashboardPage() {
 
             <div>
               <h3 className="text-xl font-bold text-slate-900">
-                {activeTitle} Diagnostic
+                {publishedAssessments.length > 0
+                  ? publishedAssessments[0].title
+                  : `${activeTitle} Diagnostic`}
               </h3>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Calibrate your baseline understanding across key concepts. 10 interactive questions with immediate concept mastery attribution.
+                {publishedAssessments.length > 0
+                  ? publishedAssessments[0].instructions ||
+                    "Calibrate your baseline understanding across key course concepts. Interactive evaluations with objective concept diagnosis."
+                  : `Your baseline knowledge profile will appear after your instructor publishes your first course diagnostic assessment.`}
               </p>
             </div>
 
-            <div className="space-y-2 py-2 text-xs text-slate-600">
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                <span>10 conceptual questions</span>
+            {publishedAssessments.length > 0 ? (
+              <div className="space-y-2 py-2 text-xs text-slate-600">
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                  <span>{publishedAssessments[0].questions?.length || 0} questions</span>
+                </div>
+                {publishedAssessments[0].durationMinutes && (
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                    <span>Takes ~{publishedAssessments[0].durationMinutes} minutes</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                  <span>
+                    {latestAttempt
+                      ? `Verified Score: ${latestAttempt.percentage}%`
+                      : "Not yet completed"}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                <span>Takes ~15 minutes to complete</span>
+            ) : (
+              <div className="p-4 rounded-2xl bg-white/80 border border-slate-200 text-xs text-slate-500">
+                No active diagnostic published yet for this course. Check back soon or visit Assessments.
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                <span>
-                  {hasMastery
-                    ? `Current Score: ${learningProgress}% (Recalibrate anytime)`
-                    : "No baseline recorded yet"}
-                </span>
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="pt-6">
-            <button
-              type="button"
-              onClick={() => setIsDiagnosticOpen(true)}
-              className="w-full py-3 px-4 rounded-2xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 shadow-md shadow-indigo-600/20 transition-all hover:scale-[1.01] flex items-center justify-center gap-2"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>{hasMastery ? "Recalibrate Diagnostic" : "Start Diagnostic"}</span>
-            </button>
+            {publishedAssessments.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setActiveAssessmentId(publishedAssessments[0].id)}
+                className="w-full py-3 px-4 rounded-2xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 shadow-md shadow-indigo-600/20 transition-all hover:scale-[1.01] flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>{latestAttempt ? "Review Diagnostic" : "Start Diagnostic"}</span>
+              </button>
+            ) : (
+              <Link
+                href="/student/assessments"
+                className="w-full py-3 px-4 rounded-2xl bg-slate-900 text-white font-semibold text-sm hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Go to Assessments</span>
+              </Link>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ─── Diagnostic Assessment Engine Modal ──────────────────────────── */}
-      <DiagnosticAssessmentModal
-        isOpen={isDiagnosticOpen}
-        onClose={() => setIsDiagnosticOpen(false)}
-        courseTitle={activeTitle}
-        courseId={selectedCourse?.id}
-        onComplete={(newScore) => {
-          if (selectedCourse?.id && user?.uid) {
-            setLearningProfile({
-              id: `${user.uid}_${selectedCourse.id}`,
-              studentId: user.uid,
-              courseId: selectedCourse.id,
-              overallMastery: newScore,
-              lastUpdatedAt: { toDate: () => new Date() } as unknown as import("firebase/firestore").Timestamp,
-            });
-          }
-        }}
-      />
+      {/* ─── Real Diagnostic Assessment Engine Modal ───────────────────────── */}
+      {activeAssessmentId && (
+        <TakeAssessmentModal
+          isOpen={true}
+          onClose={() => setActiveAssessmentId(null)}
+          assessmentId={activeAssessmentId}
+          courseTitle={activeTitle}
+          onCompleted={() => {
+            if (selectedCourse?.id && user?.uid) {
+              const courseId = selectedCourse.id;
+              Promise.all([
+                learningService.getLearningProfile(user.uid, courseId),
+                assessmentService.listCourseAssessments(courseId),
+              ]).then(([profRes, assRes]) => {
+                if (profRes.success && profRes.data) {
+                  setLearningProfile(profRes.data);
+                }
+                if (assRes.success && assRes.data) {
+                  const published = assRes.data.filter((a) => a.status === "published");
+                  setPublishedAssessments(published);
+                }
+              });
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -124,14 +124,38 @@ export const assessmentDifficultySchema = z.enum(['easy', 'medium', 'hard', 'mix
 export const assessmentStatusSchema = z.enum(['draft', 'published', 'closed']);
 export const attemptStatusSchema = z.enum(['in_progress', 'completed']);
 
+export const questionSchema = z.object({
+  id: z.string(),
+  text: z.string().min(3, 'Question text is required'),
+  options: z.array(z.string().min(1, 'Option cannot be empty')).min(2, 'At least 2 options required'),
+  correctOptionIndex: z.number().int().min(0),
+  explanation: z.string().max(2000).optional(),
+  conceptId: z.string().optional(),
+  conceptName: z.string().optional(),
+  points: z.number().positive().default(1),
+  isAiGenerated: z.boolean().optional(),
+});
+
+export const assessmentFeedbackSettingsSchema = z.object({
+  showCorrectAnswers: z.boolean().default(true),
+  showExplanations: z.boolean().default(true),
+});
+
 export const createAssessmentSchema = z.object({
   courseId: courseIdSchema,
   teacherId: teacherIdSchema,
+  teacherName: z.string().optional(),
+  courseTitle: z.string().optional(),
   title: z.string().min(3).max(150),
   description: z.string().max(1000).optional(),
+  instructions: z.string().max(2000).optional(),
   type: assessmentTypeSchema,
   difficulty: assessmentDifficultySchema,
   totalMarks: z.number().positive('Total marks must be positive'),
+  durationMinutes: z.number().int().positive().optional(),
+  conceptIds: z.array(z.string()).optional(),
+  questions: z.array(questionSchema).optional(),
+  feedbackSettings: assessmentFeedbackSettingsSchema.optional(),
   status: assessmentStatusSchema.default('draft'),
 });
 
@@ -144,19 +168,29 @@ export const createAssessmentAttemptSchema = z.object({
   assessmentId: idSchema,
   courseId: courseIdSchema,
   studentId: studentIdSchema,
+  studentName: z.string().optional(),
+  studentEmail: z.string().optional(),
   status: attemptStatusSchema.default('in_progress'),
 });
 
 export const completeAssessmentAttemptSchema = z.object({
   score: z.number().min(0),
+  totalMarks: z.number().min(0).optional(),
   percentage: z.number().min(0).max(100),
   status: z.literal('completed'),
+  answers: z.record(z.string(), z.number()).optional(),
 });
 
+export const submitAssessmentSchema = z.object({
+  answers: z.record(z.string(), z.number().int().min(0)),
+});
+
+export type QuestionInput = z.infer<typeof questionSchema>;
 export type CreateAssessmentInput = z.infer<typeof createAssessmentSchema>;
 export type UpdateAssessmentInput = z.infer<typeof updateAssessmentSchema>;
 export type CreateAssessmentAttemptInput = z.infer<typeof createAssessmentAttemptSchema>;
 export type CompleteAssessmentAttemptInput = z.infer<typeof completeAssessmentAttemptSchema>;
+export type SubmitAssessmentInput = z.infer<typeof submitAssessmentSchema>;
 
 // ─── Learning Intelligence ───────────────────────────────────────────────────
 

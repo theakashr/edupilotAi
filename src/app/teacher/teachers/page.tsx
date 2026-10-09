@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { TeacherNav } from "@/components/teacher/TeacherNav";
 import { ProvisionTeacherModal } from "@/components/teacher/ProvisionTeacherModal";
@@ -17,7 +17,6 @@ import {
   Sparkles,
   RefreshCw,
   Award,
-  KeyRound,
 } from "lucide-react";
 
 export default function TeacherDirectoryPage() {
@@ -28,8 +27,40 @@ export default function TeacherDirectoryPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchTeachers = useCallback(async () => {
+  useEffect(() => {
+    let ignore = false;
+    async function loadTeachers() {
+      if (!user?.uid) return;
+      try {
+        const res = await fetch("/api/admin/provision-teacher", {
+          headers: {
+            "x-user-id": user.uid,
+          },
+        });
+        if (res.ok && !ignore) {
+          const data = await res.json();
+          setTeachers(data.teachers || []);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch teachers:", err);
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    }
+
+    loadTeachers();
+
+    return () => {
+      ignore = true;
+    };
+  }, [user]);
+
+  const handleRefresh = async () => {
     if (!user?.uid) return;
+    setRefreshing(true);
     try {
       const res = await fetch("/api/admin/provision-teacher", {
         headers: {
@@ -43,18 +74,8 @@ export default function TeacherDirectoryPage() {
     } catch (err) {
       console.warn("Failed to fetch teachers:", err);
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.uid]);
-
-  useEffect(() => {
-    fetchTeachers();
-  }, [fetchTeachers]);
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    fetchTeachers();
   };
 
   const filteredTeachers = teachers.filter((t) => {
@@ -233,7 +254,7 @@ export default function TeacherDirectoryPage() {
         <ProvisionTeacherModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          onTeacherProvisioned={fetchTeachers}
+          onTeacherProvisioned={handleRefresh}
         />
       </div>
     </RoleGuard>

@@ -15,8 +15,9 @@ import {
   CheckCircle2,
   Calendar,
   AlertCircle,
+  BarChart3,
 } from "lucide-react";
-import { DiagnosticAssessmentModal } from "@/components/student/DiagnosticAssessmentModal";
+import { TakeAssessmentModal } from "@/components/student/TakeAssessmentModal";
 import { NoEnrolledCourses } from "@/components/student/NoEnrolledCourses";
 
 export default function StudentAssessmentsPage() {
@@ -29,8 +30,7 @@ export default function StudentAssessmentsPage() {
   // Real assessments and student attempts
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [attemptsMap, setAttemptsMap] = useState<Record<string, AssessmentAttempt[]>>({});
-  const [diagAttempts, setDiagAttempts] = useState<AssessmentAttempt[]>([]);
-  const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
+  const [activeAssessmentId, setActiveAssessmentId] = useState<string | null>(null);
 
   // 1. Fetch enrolled courses
   useEffect(() => {
@@ -67,6 +67,8 @@ export default function StudentAssessmentsPage() {
     };
   }, [user?.uid, profile?.studentId]);
 
+  const [refreshKey, setRefreshKey] = useState(0);
+
   // 2. Fetch assessments and student attempts for selected course
   useEffect(() => {
     let ignore = false;
@@ -80,11 +82,12 @@ export default function StudentAssessmentsPage() {
 
         // Fetch published course assessments
         const assRes = await assessmentService.listCourseAssessments(courseId);
-        const published = assRes.success && assRes.data
-          ? assRes.data.filter((a) => a.status === "published")
-          : [];
-
         if (ignore) return;
+        const published =
+          assRes.success && assRes.data
+            ? assRes.data.filter((a) => a.status === "published")
+            : [];
+
         setAssessments(published);
 
         // Fetch student attempts for each published assessment
@@ -92,28 +95,18 @@ export default function StudentAssessmentsPage() {
         await Promise.all(
           published.map(async (ass) => {
             const attRes = await assessmentService.listStudentAttempts(ass.id, user.uid);
-            if (attRes.success && attRes.data) {
-              newAttemptsMap[ass.id] = attRes.data;
-            } else {
-              newAttemptsMap[ass.id] = [];
-            }
+            newAttemptsMap[ass.id] = attRes.success && attRes.data ? attRes.data : [];
           })
         );
 
-        // Fetch diagnostic baseline attempts
-        const diagRes = await assessmentService.listStudentAttempts(`diag_${courseId}`, user.uid);
-        if (!ignore) {
-          setAttemptsMap(newAttemptsMap);
-          if (diagRes.success && diagRes.data) {
-            setDiagAttempts(diagRes.data);
-          } else {
-            setDiagAttempts([]);
-          }
-        }
+        if (ignore) return;
+        setAttemptsMap(newAttemptsMap);
       } catch (err) {
         console.error("Failed to load assessments:", err);
       } finally {
-        if (!ignore) setAssessmentsLoading(false);
+        if (!ignore) {
+          setAssessmentsLoading(false);
+        }
       }
     }
 
@@ -122,9 +115,7 @@ export default function StudentAssessmentsPage() {
     return () => {
       ignore = true;
     };
-  }, [selectedCourse?.id, user?.uid]);
-
-  const latestDiag = diagAttempts.length > 0 ? diagAttempts[0] : null;
+  }, [selectedCourse?.id, user?.uid, refreshKey]);
 
   if (loading) {
     return (
@@ -139,7 +130,7 @@ export default function StudentAssessmentsPage() {
     );
   }
 
-  // Phase E: If no courses enrolled, render real empty state
+  // If no courses enrolled, render empty state
   if (courses.length === 0) {
     return (
       <div className="space-y-6">
@@ -163,26 +154,20 @@ export default function StudentAssessmentsPage() {
     );
   }
 
-  // Collect all completed attempts across diagnostics and assessments
+  // Find featured diagnostic assessment (if any published)
+  const featuredDiagnostic = assessments.find((a) => a.type === "diagnostic") || assessments[0];
+  const featuredAttempts = featuredDiagnostic ? attemptsMap[featuredDiagnostic.id] || [] : [];
+  const latestFeaturedAttempt = featuredAttempts.find((a) => a.status === "completed");
+
+  // Collect all completed attempts across assessments
   const allCompletedAttempts: {
     id: string;
     title: string;
     score?: number;
+    totalMarks?: number;
     percentage?: number;
     submittedAt?: string;
   }[] = [];
-
-  if (latestDiag && latestDiag.percentage !== undefined) {
-    allCompletedAttempts.push({
-      id: latestDiag.id,
-      title: `${selectedCourse?.title} Diagnostic Baseline`,
-      score: latestDiag.score,
-      percentage: latestDiag.percentage,
-      submittedAt: latestDiag.submittedAt?.toDate
-        ? latestDiag.submittedAt.toDate().toLocaleDateString()
-        : "Recently",
-    });
-  }
 
   Object.entries(attemptsMap).forEach(([assId, attList]) => {
     const parentAss = assessments.find((a) => a.id === assId);
@@ -190,8 +175,9 @@ export default function StudentAssessmentsPage() {
       if (att.status === "completed" && att.percentage !== undefined) {
         allCompletedAttempts.push({
           id: att.id,
-          title: parentAss?.title || "Course Quiz",
+          title: parentAss?.title || "Assessment",
           score: att.score,
+          totalMarks: att.totalMarks || parentAss?.totalMarks,
           percentage: att.percentage,
           submittedAt: att.submittedAt?.toDate
             ? att.submittedAt.toDate().toLocaleDateString()
@@ -244,61 +230,76 @@ export default function StudentAssessmentsPage() {
       </div>
 
       {/* Featured Diagnostic Banner Card */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-950 text-white p-6 sm:p-9 shadow-xl border border-indigo-800/40">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+      {featuredDiagnostic ? (
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-950 text-white p-6 sm:p-9 shadow-xl border border-indigo-800/40">
+          <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 max-w-2xl space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-[11px] font-semibold tracking-wider uppercase text-indigo-200 border border-white/10">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
-            Adaptive Diagnostic Baseline
-          </div>
-
-          <div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              {selectedCourse?.title} Diagnostic
-            </h2>
-            <p className="text-xs sm:text-sm text-indigo-200/80 mt-1 leading-relaxed">
-              Measure your understanding across core course concepts. Interactive conceptual questions to determine your starting learning profile.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-6 text-xs text-indigo-200 pt-1">
-            <div className="flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-indigo-300" />
-              <span>~15 minutes</span>
+          <div className="relative z-10 max-w-2xl space-y-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-[11px] font-semibold tracking-wider uppercase text-indigo-200 border border-white/10">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+              {featuredDiagnostic.type === "diagnostic" ? "Diagnostic Baseline" : "Featured Assessment"}
             </div>
-            <div className="flex items-center gap-1.5">
-              <BookOpen className="w-3.5 h-3.5 text-indigo-300" />
-              <span>10 questions</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Award className="w-3.5 h-3.5 text-indigo-300" />
-              <span>
-                {latestDiag
-                  ? `Calibrated Score: ${latestDiag.percentage}%`
-                  : "Not yet completed"}
-              </span>
-            </div>
-          </div>
 
-          <div className="pt-3">
-            <button
-              type="button"
-              onClick={() => setIsDiagnosticOpen(true)}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-white text-indigo-950 font-semibold text-sm hover:bg-indigo-50 shadow-md transition-all hover:gap-3"
-            >
-              <span>{latestDiag ? "Recalibrate Baseline" : "Start Diagnostic"}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                {featuredDiagnostic.title}
+              </h2>
+              <p className="text-xs sm:text-sm text-indigo-200/80 mt-1 leading-relaxed">
+                {featuredDiagnostic.instructions ||
+                  `Measure your understanding across core concepts in ${selectedCourse?.title}. Deterministic evaluations to calculate your genuine baseline.`}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-6 text-xs text-indigo-200 pt-1">
+              {featuredDiagnostic.durationMinutes && (
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-indigo-300" />
+                  <span>~{featuredDiagnostic.durationMinutes} minutes</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-indigo-300" />
+                <span>{featuredDiagnostic.questions?.length || 0} questions</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Award className="w-3.5 h-3.5 text-indigo-300" />
+                <span>
+                  {latestFeaturedAttempt
+                    ? `Calibrated Score: ${latestFeaturedAttempt.percentage}%`
+                    : "Not yet completed"}
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-3">
+              <button
+                type="button"
+                onClick={() => setActiveAssessmentId(featuredDiagnostic.id)}
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-white text-indigo-950 font-semibold text-sm hover:bg-indigo-50 shadow-md transition-all hover:gap-3"
+              >
+                <span>
+                  {latestFeaturedAttempt ? "View Diagnostic Results" : "Start Diagnostic"}
+                </span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="rounded-3xl bg-slate-900 text-white p-8 text-center space-y-3">
+          <Sparkles className="w-8 h-8 text-indigo-400 mx-auto" />
+          <h3 className="text-xl font-bold">No Diagnostic Assessments Published Yet</h3>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            Your instructor for {selectedCourse?.title} has not published a diagnostic assessment yet. Your baseline knowledge profile will appear after your first assessment.
+          </p>
+        </div>
+      )}
 
-      {/* Available Published Quizzes & Checkpoints */}
+      {/* Available Published Assessments Cards */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-slate-900 tracking-tight">
-            Course Quizzes &amp; Checkpoints ({assessments.length})
+            Available Assessments ({assessments.length})
           </h3>
           <span className="text-xs text-slate-400">Published by instructor</span>
         </div>
@@ -309,53 +310,86 @@ export default function StudentAssessmentsPage() {
             <div className="h-36 bg-slate-100 rounded-2xl" />
           </div>
         ) : assessments.length === 0 ? (
-          <div className="rounded-2xl bg-white border border-slate-200/80 p-8 text-center shadow-xs">
-            <AlertCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <h4 className="text-sm font-bold text-slate-800">No Course Quizzes Published</h4>
-            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-              Your instructor has not published any quizzes or assignments for {selectedCourse?.title} yet. Quizzes will appear here once published.
+          <div className="rounded-2xl bg-white border border-slate-200/80 p-8 text-center shadow-xs space-y-2">
+            <AlertCircle className="w-8 h-8 text-slate-400 mx-auto" />
+            <h4 className="text-sm font-bold text-slate-800">No Assessments Available</h4>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              No assessments are currently published for {selectedCourse?.title}. When your instructor publishes quizzes or diagnostics, they will appear here.
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {assessments.map((ass) => {
               const attempts = attemptsMap[ass.id] || [];
-              const latestAttempt = attempts.length > 0 ? attempts[0] : null;
+              const latestAttempt = attempts.find((a) => a.status === "completed") || attempts[0];
+              const isCompleted = latestAttempt?.status === "completed";
 
               return (
                 <div
                   key={ass.id}
-                  className="rounded-2xl bg-white border border-slate-200/80 p-5 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between"
+                  className="rounded-3xl bg-white border border-slate-200/90 p-6 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between space-y-4"
                 >
                   <div>
+                    {/* Header Badges */}
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                        {ass.type || "Quiz"} &bull; Difficulty: {ass.difficulty || 5}/10
-                      </span>
-                      {ass.totalMarks && (
-                        <span className="text-xs text-slate-400">
-                          {ass.totalMarks} Marks
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
+                          {ass.type || "Quiz"} &bull; {ass.difficulty || "medium"}
                         </span>
-                      )}
+                        {ass.teacherName && (
+                          <span className="text-[10px] text-slate-400">
+                            By {ass.teacherName}
+                          </span>
+                        )}
+                      </div>
+
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                          isCompleted
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                        }`}
+                      >
+                        {isCompleted ? "Completed" : "Available"}
+                      </span>
                     </div>
 
                     <h4 className="text-base font-bold text-slate-900">
                       {ass.title}
                     </h4>
 
-                    {ass.description && (
+                    {ass.instructions && (
                       <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
-                        {ass.description}
+                        {ass.instructions}
                       </p>
                     )}
+
+                    {/* Metadata tags */}
+                    <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 mt-3 pt-3 border-t border-slate-100">
+                      <div className="flex items-center gap-1">
+                        <BookOpen className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{ass.questions?.length || 0} Questions</span>
+                      </div>
+                      {ass.durationMinutes && (
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{ass.durationMinutes} min</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <Award className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{ass.totalMarks} Marks</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between">
+                  {/* Actions & Result Display */}
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
                     <div>
-                      {latestAttempt ? (
-                        <span className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Attempted: {latestAttempt.percentage}%</span>
+                      {isCompleted ? (
+                        <span className="text-xs font-semibold text-emerald-700 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span>Score: {latestAttempt.percentage}%</span>
                         </span>
                       ) : (
                         <span className="text-xs text-slate-400">
@@ -364,9 +398,27 @@ export default function StudentAssessmentsPage() {
                       )}
                     </div>
 
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600">
-                      {latestAttempt ? "Completed" : "Available"}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAssessmentId(ass.id)}
+                      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                        isCompleted
+                          ? "border border-slate-200 text-slate-700 hover:bg-slate-50"
+                          : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-xs"
+                      }`}
+                    >
+                      {isCompleted ? (
+                        <>
+                          <BarChart3 className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>View Result</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Start Assessment</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
               );
@@ -375,7 +427,7 @@ export default function StudentAssessmentsPage() {
         )}
       </div>
 
-      {/* Real Past Attempts History */}
+      {/* Real Past Completed Attempts History */}
       <div className="space-y-4">
         <h3 className="text-lg font-bold text-slate-900 tracking-tight">
           Completed Attempts &amp; Results ({allCompletedAttempts.length})
@@ -383,7 +435,7 @@ export default function StudentAssessmentsPage() {
 
         {allCompletedAttempts.length === 0 ? (
           <div className="rounded-2xl bg-white border border-slate-200/80 p-6 text-center text-slate-400 text-xs shadow-xs">
-            No completed attempts recorded yet. Take the diagnostic baseline to record your first result.
+            No completed assessments recorded yet. Take an assessment to record your verified diagnostic baseline.
           </div>
         ) : (
           <div className="rounded-2xl bg-white border border-slate-200/80 overflow-hidden shadow-xs divide-y divide-slate-100">
@@ -409,7 +461,7 @@ export default function StudentAssessmentsPage() {
                   <span className="font-mono text-lg font-extrabold text-slate-900">
                     {att.percentage}%
                   </span>
-                  <p className="text-[11px] text-emerald-600 font-semibold">Completed</p>
+                  <p className="text-[11px] text-emerald-600 font-semibold">Verified</p>
                 </div>
               </div>
             ))}
@@ -417,28 +469,18 @@ export default function StudentAssessmentsPage() {
         )}
       </div>
 
-      {/* Diagnostic Modal */}
-      <DiagnosticAssessmentModal
-        isOpen={isDiagnosticOpen}
-        onClose={() => setIsDiagnosticOpen(false)}
-        courseTitle={selectedCourse?.title}
-        courseId={selectedCourse?.id}
-        onComplete={(newScore) => {
-          setDiagAttempts([
-            {
-              id: `temp_${Date.now()}`,
-              assessmentId: `diag_${selectedCourse?.id}`,
-              courseId: selectedCourse?.id || "",
-              studentId: user?.uid || "",
-              percentage: newScore,
-              status: "completed",
-              startedAt: { toDate: () => new Date() } as unknown as import("firebase/firestore").Timestamp,
-              submittedAt: { toDate: () => new Date() } as unknown as import("firebase/firestore").Timestamp,
-              createdAt: { toDate: () => new Date() } as unknown as import("firebase/firestore").Timestamp,
-            },
-          ]);
-        }}
-      />
+      {/* Active Assessment Taking Modal */}
+      {activeAssessmentId && (
+        <TakeAssessmentModal
+          isOpen={true}
+          onClose={() => setActiveAssessmentId(null)}
+          assessmentId={activeAssessmentId}
+          courseTitle={selectedCourse?.title}
+          onCompleted={() => {
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
     </div>
   );
 }

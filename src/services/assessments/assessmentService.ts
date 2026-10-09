@@ -243,12 +243,25 @@ export const assessmentService = {
         id: newDocRef.id,
         courseId: input.courseId,
         teacherId: input.teacherId,
+        teacherName: input.teacherName,
+        courseTitle: input.courseTitle,
         title: input.title,
         description: input.description,
+        instructions: input.instructions,
         type: input.type,
         difficulty: input.difficulty,
         totalMarks: input.totalMarks,
+        durationMinutes: input.durationMinutes,
         status: input.status,
+        conceptIds: input.conceptIds || [],
+        questions: (input.questions || []).map((q) => ({
+          ...q,
+          points: q.points || 1,
+        })),
+        feedbackSettings: input.feedbackSettings || {
+          showCorrectAnswers: true,
+          showExplanations: true,
+        },
         createdAt: now,
         updatedAt: now,
       };
@@ -310,6 +323,29 @@ export const assessmentService = {
   },
 
   /**
+   * List all assessments created by a teacher.
+   */
+  async listTeacherAssessments(
+    teacherId: string
+  ): Promise<DbResult<Assessment[]>> {
+    try {
+      const q = query(
+        assessmentCollection(),
+        where('teacherId', '==', teacherId),
+        orderBy('createdAt', 'desc')
+      );
+      const snapshot = await getDocs(q);
+      const assessments = snapshot.docs.map((d) => d.data());
+      return { success: true, data: assessments };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to list teacher assessments',
+      };
+    }
+  },
+
+  /**
    * Update an assessment.
    */
   async updateAssessment(
@@ -327,6 +363,25 @@ export const assessmentService = {
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to update assessment',
+      };
+    }
+  },
+
+  /**
+   * Delete an assessment.
+   */
+  async deleteAssessment(
+    assessmentId: string
+  ): Promise<DbResult<void>> {
+    try {
+      const { deleteDoc } = await import('firebase/firestore');
+      const docRef = typedDoc<Assessment>(COLLECTIONS.ASSESSMENTS, assessmentId);
+      await deleteDoc(docRef);
+      return { success: true, data: undefined };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to delete assessment',
       };
     }
   },
@@ -349,6 +404,8 @@ export const assessmentService = {
         assessmentId: input.assessmentId,
         courseId: input.courseId,
         studentId: input.studentId,
+        studentName: input.studentName,
+        studentEmail: input.studentEmail,
         startedAt: now,
         status: input.status,
         createdAt: now,
@@ -369,7 +426,10 @@ export const assessmentService = {
    */
   async completeAssessmentAttempt(
     attemptId: string,
-    data: CompleteAssessmentAttemptInput
+    data: CompleteAssessmentAttemptInput & {
+      results?: import('@/types').QuestionAttemptResult[];
+      conceptBreakdown?: import('@/types').ConceptDiagnosticSummary[];
+    }
   ): Promise<DbResult<void>> {
     try {
       const docRef = typedDoc<AssessmentAttempt>(
@@ -378,8 +438,12 @@ export const assessmentService = {
       );
       await updateDoc(docRef, {
         score: data.score,
+        totalMarks: data.totalMarks,
         percentage: data.percentage,
         status: 'completed',
+        answers: data.answers || {},
+        results: data.results || [],
+        conceptBreakdown: data.conceptBreakdown || [],
         submittedAt: nowTimestamp(),
       });
       return { success: true, data: undefined };
@@ -414,5 +478,188 @@ export const assessmentService = {
         error: err instanceof Error ? err.message : 'Failed to list student attempts',
       };
     }
+  },
+
+  /**
+   * List all attempts for a given assessment (for teacher analysis).
+   */
+  async listAssessmentAttempts(
+    assessmentId: string
+  ): Promise<DbResult<AssessmentAttempt[]>> {
+    try {
+      const q = query(
+        assessmentAttemptCollection(),
+        where('assessmentId', '==', assessmentId),
+        orderBy('startedAt', 'desc')
+      );
+      const snapshot = await getDocs(q);
+      const attempts = snapshot.docs.map((d) => d.data());
+      return { success: true, data: attempts };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to list assessment attempts',
+      };
+    }
+  },
+
+  /**
+   * List all attempts for a student in a course.
+   */
+  async listStudentCourseAttempts(
+    courseId: string,
+    studentId: string
+  ): Promise<DbResult<AssessmentAttempt[]>> {
+    try {
+      const q = query(
+        assessmentAttemptCollection(),
+        where('courseId', '==', courseId),
+        where('studentId', '==', studentId),
+        orderBy('startedAt', 'desc')
+      );
+      const snapshot = await getDocs(q);
+      const attempts = snapshot.docs.map((d) => d.data());
+      return { success: true, data: attempts };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to list student course attempts',
+      };
+    }
+  },
+
+  /**
+   * Deterministic server-side grading engine.
+   * Compares student answers against authoritative assessment questions.
+   * Generates question-level results and concept diagnostic profiles.
+   */
+  gradeAssessmentSubmission(
+    assessment: Assessment,
+    answers: Record<string, number>
+  ): {
+    score: number;
+    totalMarks: number;
+    percentage: number;
+    results: import('@/types').QuestionAttemptResult[];
+    conceptBreakdown: import('@/types').ConceptDiagnosticSummary[];
+  } {
+    const questions = assessment.questions || [];
+    let score = 0;
+    let totalMarks = 0;
+
+    const showCorrect = assessment.feedbackSettings?.showCorrectAnswers !== false;
+    const showExplanation = assessment.feedbackSettings?.showExplanations !== false;
+
+    // Track concept stats: conceptId -> { name, total, correct }
+    const conceptMap: Record<
+      string,
+      { id: string; name: string; total: number; correct: number }
+    > = {};
+
+    // Register all assessment concepts so unassessed concepts can be identified
+    (assessment.conceptIds || []).forEach((cId) => {
+      if (!conceptMap[cId]) {
+        conceptMap[cId] = {
+          id: cId,
+          name: cId,
+          total: 0,
+          correct: 0,
+        };
+      }
+    });
+
+    const results: import('@/types').QuestionAttemptResult[] = questions.map((q) => {
+      const pointsPossible = q.points || 1;
+      totalMarks += pointsPossible;
+
+      const selectedIndex = answers[q.id] !== undefined ? answers[q.id] : null;
+      const isCorrect = selectedIndex !== null && selectedIndex === q.correctOptionIndex;
+      const pointsAwarded = isCorrect ? pointsPossible : 0;
+      score += pointsAwarded;
+
+      // Concept tracking
+      if (q.conceptId) {
+        if (!conceptMap[q.conceptId]) {
+          conceptMap[q.conceptId] = {
+            id: q.conceptId,
+            name: q.conceptName || q.conceptId,
+            total: 0,
+            correct: 0,
+          };
+        }
+        if (q.conceptName) {
+          conceptMap[q.conceptId].name = q.conceptName;
+        }
+        conceptMap[q.conceptId].total += 1;
+        if (isCorrect) {
+          conceptMap[q.conceptId].correct += 1;
+        }
+      }
+
+      return {
+        questionId: q.id,
+        questionText: q.text,
+        options: q.options,
+        selectedOptionIndex: selectedIndex,
+        isCorrect,
+        correctOptionIndex: showCorrect ? q.correctOptionIndex : undefined,
+        explanation: showExplanation ? q.explanation : undefined,
+        pointsAwarded,
+        pointsPossible,
+        conceptId: q.conceptId,
+        conceptName: q.conceptName,
+      };
+    });
+
+    // If assessment configured a fixed totalMarks, honor it as denominator if questions match
+    const finalTotalMarks = totalMarks > 0 ? totalMarks : assessment.totalMarks || 1;
+    const percentage = Math.min(100, Math.round((score / finalTotalMarks) * 100));
+
+    // Calculate concept diagnostic breakdown per Section 5 guidelines
+    const conceptBreakdown: import('@/types').ConceptDiagnosticSummary[] = Object.values(
+      conceptMap
+    ).map((c) => {
+      const questionsCount = c.total;
+      const correctCount = c.correct;
+      const scorePct = questionsCount > 0 ? Math.round((correctCount / questionsCount) * 100) : 0;
+
+      let status: import('@/types').ConceptDiagnosticStatus;
+      let details: string;
+
+      if (questionsCount === 0) {
+        status = 'not_assessed';
+        details = 'Concept was not covered in this assessment.';
+      } else if (questionsCount === 1) {
+        status = 'insufficient_evidence';
+        details = `Only 1 question assessed (${correctCount}/1). Insufficient evidence to establish definitive mastery or difficulty.`;
+      } else if (scorePct >= 70) {
+        status = 'demonstrated_understanding';
+        details = `Strong performance: ${correctCount}/${questionsCount} questions correct (${scorePct}%).`;
+      } else if (scorePct < 60) {
+        status = 'potential_difficulty';
+        details = `Potential area for review: ${correctCount}/${questionsCount} questions correct (${scorePct}%).`;
+      } else {
+        status = 'insufficient_evidence';
+        details = `Moderate performance: ${correctCount}/${questionsCount} questions correct (${scorePct}%). Further practice advised.`;
+      }
+
+      return {
+        conceptId: c.id,
+        conceptName: c.name,
+        questionsCount,
+        correctCount,
+        scorePercentage: scorePct,
+        status,
+        details,
+      };
+    });
+
+    return {
+      score,
+      totalMarks: finalTotalMarks,
+      percentage,
+      results,
+      conceptBreakdown,
+    };
   },
 };
