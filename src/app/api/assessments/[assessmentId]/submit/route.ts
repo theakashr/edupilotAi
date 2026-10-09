@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { assessmentService } from '@/services/assessments/assessmentService';
 import { courseService } from '@/services/courses/courseService';
 import { learningService } from '@/services/learning/learningService';
+import { replanningService } from '@/services/learning/replanningService';
 import { getUserProfile } from '@/lib/firebase/firestore';
 import { submitAssessmentSchema } from '@/lib/validation';
 
@@ -178,8 +179,15 @@ export async function POST(
           percentage: graded.percentage,
         },
       });
+
+      // Phase 10: Trigger Adaptive Dynamic Replanning
+      await replanningService.replanStudentCourse({
+        studentId: userId,
+        courseId: assessment.courseId,
+        triggerReason: `Completed assessment '${assessment.title}' (Score: ${graded.percentage}%)`,
+      });
     } catch (logErr) {
-      console.warn('Non-fatal error logging activity or learning profile:', logErr);
+      console.warn('Non-fatal error logging activity, learning profile, or replanning:', logErr);
     }
 
     // 9. Return Detailed Graded Response

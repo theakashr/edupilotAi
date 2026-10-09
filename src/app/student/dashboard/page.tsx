@@ -12,16 +12,15 @@ import type { Course, Concept, Material, LearningProfile, Assessment, Assessment
 import {
   Sparkles,
   ArrowRight,
-  Target,
   BrainCircuit,
   Flame,
-  Clock,
   ChevronRight,
   Layers,
   Award,
   BookOpen,
 } from "lucide-react";
 import { TakeAssessmentModal } from "@/components/student/TakeAssessmentModal";
+import { AdaptiveLearningPlan } from "@/components/student/AdaptiveLearningPlan";
 import { NoEnrolledCourses } from "@/components/student/NoEnrolledCourses";
 
 export default function StudentDashboardPage() {
@@ -29,7 +28,6 @@ export default function StudentDashboardPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
-  const [courseDataLoading, setCourseDataLoading] = useState(false);
   const [activeAssessmentId, setActiveAssessmentId] = useState<string | null>(null);
 
   // Real course-scoped data
@@ -88,7 +86,6 @@ export default function StudentDashboardPage() {
       if (!selectedCourse?.id || !user?.uid) return;
 
       try {
-        setCourseDataLoading(true);
         const courseId = selectedCourse.id;
 
         const [matRes, conRes, profRes, actRes, assRes] = await Promise.all([
@@ -180,8 +177,6 @@ export default function StudentDashboardPage() {
         }
       } catch (err) {
         console.error("Failed to load course details:", err);
-      } finally {
-        if (!ignore) setCourseDataLoading(false);
       }
     }
 
@@ -195,10 +190,6 @@ export default function StudentDashboardPage() {
   const activeTitle = selectedCourse?.title || "My Course";
   const hasMastery = learningProfile?.overallMastery !== undefined && learningProfile.overallMastery !== null;
   const learningProgress = hasMastery ? learningProfile.overallMastery : 0;
-
-  // Selected concepts for recommendations
-  const primaryConcept = concepts.length > 0 ? concepts[0] : null;
-  const secondaryConcept = concepts.length > 1 ? concepts[1] : null;
 
   if (loading) {
     return (
@@ -375,137 +366,14 @@ export default function StudentDashboardPage() {
         </div>
       </div>
 
-      {/* ─── Today's Focus & Quick Actions ───────────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Target className="w-5 h-5 text-indigo-600" />
-            <h3 className="text-lg font-bold text-slate-900 tracking-tight">Your focus today</h3>
-          </div>
-          <span className="text-xs font-medium text-slate-400">Curriculum Grounded</span>
-        </div>
-
-        {courseDataLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-pulse">
-            <div className="md:col-span-2 h-36 bg-slate-100 rounded-2xl" />
-            <div className="h-36 bg-slate-100 rounded-2xl" />
-          </div>
-        ) : concepts.length === 0 ? (
-          materials.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {materials.slice(0, 2).map((mat) => (
-                <div
-                  key={mat.id}
-                  className="rounded-2xl bg-white border border-slate-200/80 p-5 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100">
-                        📚 Course Material ({mat.type.toUpperCase()})
-                      </span>
-                      <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
-                        Verified
-                      </span>
-                    </div>
-                    <h4 className="text-sm font-bold text-slate-900 line-clamp-1">
-                      {mat.title}
-                    </h4>
-                    <p className="text-xs text-slate-500 mt-1 leading-relaxed line-clamp-2">
-                      {mat.description || `${mat.fileName} • Uploaded by course instructor.`}
-                    </p>
-                  </div>
-                  <div className="pt-4 mt-3 border-t border-slate-100 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-400">
-                      {mat.fileName}
-                    </span>
-                    <Link
-                      href="/student/learning"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-                    >
-                      <span>Read Document →</span>
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-2xl bg-white border border-slate-200/80 p-6 text-center shadow-xs">
-              <p className="text-sm font-semibold text-slate-700">No concepts or materials mapped yet</p>
-              <p className="text-xs text-slate-400 mt-1">
-                Your instructor is preparing verified curriculum materials and concepts.
-              </p>
-            </div>
-          )
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Main Focus Card */}
-            {primaryConcept && (
-              <div className="md:col-span-2 rounded-2xl bg-white border border-slate-200/80 p-5 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100">
-                      🎯 Primary Topic
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-xs text-slate-400 font-medium">
-                      <Clock className="w-3.5 h-3.5" />
-                      Difficulty: {primaryConcept.difficulty}/10
-                    </span>
-                  </div>
-                  <h4 className="text-base font-bold text-slate-900">
-                    {primaryConcept.name}
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed line-clamp-2">
-                    {primaryConcept.description || "Core foundational concept verified from course learning materials."}
-                  </p>
-                </div>
-
-                <div className="pt-4 mt-2 border-t border-slate-100 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">
-                    Course: {selectedCourse?.title}
-                  </span>
-                  <Link
-                    href="/student/learning"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800 group"
-                  >
-                    <span>View in My Learning</span>
-                    <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
-                  </Link>
-                </div>
-              </div>
-            )}
-
-            {/* Quick Review Card */}
-            <div className="rounded-2xl bg-white border border-slate-200/80 p-5 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
-                    ⚡ {secondaryConcept ? "Next Concept" : "Curriculum Resource"}
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-400 font-medium">
-                    <Clock className="w-3.5 h-3.5" />
-                    Review
-                  </span>
-                </div>
-                <h4 className="text-sm font-bold text-slate-900">
-                  {secondaryConcept ? secondaryConcept.name : materials.length > 0 ? materials[0].title : "Course Materials"}
-                </h4>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed line-clamp-2">
-                  {secondaryConcept?.description || (materials.length > 0 ? `Instructor uploaded material: ${materials[0].title}` : "Instructor verified curriculum content.")}
-                </p>
-              </div>
-
-              <div className="pt-4 mt-2 border-t border-slate-100 flex items-center justify-end">
-                <Link
-                  href="/student/learning"
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-800"
-                >
-                  <span>Review now →</span>
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* ─── Personalized Adaptive Learning Plan ─────────────────────────── */}
+      {selectedCourse && (
+        <AdaptiveLearningPlan
+          courseId={selectedCourse.id}
+          courseTitle={selectedCourse.title}
+          onLaunchAssessment={(assId) => setActiveAssessmentId(assId)}
+        />
+      )}
 
       {/* ─── Two-Column: Learning Progress & Diagnostic Card ──────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

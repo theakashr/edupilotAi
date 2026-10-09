@@ -529,6 +529,29 @@ export const assessmentService = {
   },
 
   /**
+   * List all attempts across an entire course (for teacher analytics and class-level insights).
+   */
+  async listCourseAttempts(
+    courseId: string
+  ): Promise<DbResult<AssessmentAttempt[]>> {
+    try {
+      const q = query(
+        assessmentAttemptCollection(),
+        where('courseId', '==', courseId),
+        orderBy('startedAt', 'desc')
+      );
+      const snapshot = await getDocs(q);
+      const attempts = snapshot.docs.map((d) => d.data());
+      return { success: true, data: attempts };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to list course attempts',
+      };
+    }
+  },
+
+  /**
    * Deterministic server-side grading engine.
    * Compares student answers against authoritative assessment questions.
    * Generates question-level results and concept diagnostic profiles.

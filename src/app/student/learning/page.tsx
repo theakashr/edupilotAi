@@ -22,6 +22,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { DiagnosticAssessmentModal } from "@/components/student/DiagnosticAssessmentModal";
+import { AdaptiveLearningPlan } from "@/components/student/AdaptiveLearningPlan";
 import { NoEnrolledCourses } from "@/components/student/NoEnrolledCourses";
 
 export default function StudentLearningPage() {
@@ -267,6 +268,15 @@ export default function StudentLearningPage() {
           </div>
         </div>
       </div>
+
+      {/* ─── Adaptive Learning Plan ─────────────────────────────────────── */}
+      {selectedCourse && (
+        <AdaptiveLearningPlan
+          courseId={selectedCourse.id}
+          courseTitle={selectedCourse.title}
+          onLaunchAssessment={() => setIsDiagnosticOpen(true)}
+        />
+      )}
 
       {/* ─── Section 1: Verified Concepts ─────────────────────────────────── */}
       <div className="space-y-4">

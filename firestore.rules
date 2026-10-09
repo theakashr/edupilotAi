@@ -213,7 +213,10 @@ service cloud.firestore {
         resource.data.studentId == request.auth.uid || 
         isCourseTeacher(resource.data.courseId)
       );
-      allow create, update: if isTeacher() && isCourseTeacher(request.resource.data.courseId);
+      allow create, update: if isAuthenticated() && (
+        request.resource.data.studentId == request.auth.uid ||
+        isCourseTeacher(request.resource.data.courseId)
+      );
       allow delete: if isTeacher() && isCourseTeacher(resource.data.courseId);
     }
 

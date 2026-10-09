@@ -98,11 +98,10 @@ export function CourseWorkspaceNav({ course, onEditClick }: CourseWorkspaceNavPr
     },
     {
       label: "AI Insights",
-      href: "#",
-      active: false,
+      href: `${basePath}/ai-insights`,
+      active: pathname.startsWith(`${basePath}/ai-insights`),
       icon: Sparkles,
-      disabled: true,
-      phase: "Phase 16",
+      disabled: false,
     },
     {
       label: "Analytics",

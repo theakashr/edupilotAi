@@ -122,3 +122,15 @@ export type {
   PaginationOptions,
   PaginatedResult,
 } from './database';
+
+// ─── Adaptive Learning Engine (Phase 10) ──────────────────────────────────────
+export type {
+  MasteryConfidence,
+  ConceptMasteryEstimate,
+  StudentCourseMasteryProfile,
+  IdentifiedLearningGap,
+  AdaptiveActivity,
+  AdaptivePlanResult,
+  StudentGapSummary,
+} from './adaptive';
+
