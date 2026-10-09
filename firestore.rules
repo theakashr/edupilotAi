@@ -48,17 +48,18 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       
       // Public registration: Users can create their own profile ONLY with 'student' role.
-      // Client-submitted 'teacher' role creation is strictly forbidden.
-      allow create: if (isOwner(userId) && request.resource.data.role == 'student') || isAdmin();
+      // Verified Teachers and Admins can provision teachers or student profiles.
+      allow create: if (isOwner(userId) && request.resource.data.role == 'student') || isAdmin() || isTeacher();
       
       // Profile updates: Users can update preferences / displayName, but CANNOT elevate role,
-      // alter email, or toggle isActive status.
+      // alter email, or toggle isActive status unless authorized as Teacher or Admin.
       allow update: if (isOwner(userId) && 
                         request.resource.data.role == resource.data.role &&
                         request.resource.data.email == resource.data.email &&
                         (!('isActive' in request.resource.data) || request.resource.data.isActive == resource.data.isActive))
-                    || isAdmin();
-      allow delete: if isAdmin();
+                    || isAdmin()
+                    || isTeacher();
+      allow delete: if isAdmin() || isTeacher();
     }
 
     // ─── Teacher Invitations ────────────────────────────────────────────────

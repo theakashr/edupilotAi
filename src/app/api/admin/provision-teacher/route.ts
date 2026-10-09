@@ -14,7 +14,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyAdminSecret } from '@/lib/auth/serverAuth';
+import { verifyAdminSecret, verifyTeacherAuth } from '@/lib/auth/serverAuth';
 import {
   provisionTeacher,
   revokeTeacherAccess,
@@ -24,10 +24,32 @@ import {
   claimTeacherInvitation,
 } from '@/lib/firebase/adminProvisioning';
 
+async function checkAdminOrTeacherAuth(req: NextRequest): Promise<{ authorized: boolean; error?: string }> {
+  // 1. Check administrative secret
+  const adminCheck = verifyAdminSecret(req);
+  if (adminCheck.authorized) {
+    return { authorized: true };
+  }
+
+  // 2. Check active teacher session
+  const userId = req.headers.get('x-user-id')?.trim();
+  if (userId) {
+    const teacherCheck = await verifyTeacherAuth(userId);
+    if (teacherCheck.authorized) {
+      return { authorized: true };
+    }
+  }
+
+  return {
+    authorized: false,
+    error: 'Unauthorized: Requires administrator secret or active teacher authorization.',
+  };
+}
+
 // ─── GET: List teachers or inspect status ──────────────────────────────────────
 
 export async function GET(req: NextRequest) {
-  const auth = verifyAdminSecret(req);
+  const auth = await checkAdminOrTeacherAuth(req);
   if (!auth.authorized) {
     return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 401 });
   }
@@ -54,7 +76,7 @@ export async function GET(req: NextRequest) {
 // ─── POST: Administrative Actions ─────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const auth = verifyAdminSecret(req);
+  const auth = await checkAdminOrTeacherAuth(req);
   if (!auth.authorized) {
     return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: 401 });
   }

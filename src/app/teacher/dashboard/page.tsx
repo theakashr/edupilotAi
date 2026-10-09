@@ -22,6 +22,7 @@ import {
   FileSpreadsheet,
   File,
   Layers,
+  ShieldCheck,
 } from "lucide-react";
 
 export default function TeacherDashboard() {
@@ -602,6 +603,34 @@ export default function TeacherDashboard() {
                   })}
                 </div>
               )}
+            </div>
+
+            {/* Faculty & Educator Administration Card */}
+            <div className="rounded-2xl bg-white border border-slate-200/80 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-indigo-700 font-bold text-xs uppercase tracking-wider">
+                  <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                  <span>Faculty Administration</span>
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                  Teachers
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Add and manage co-teachers, professors, and teaching assistants with course creation privileges.
+              </p>
+              <div className="pt-1">
+                <Link
+                  href="/teacher/teachers"
+                  className="w-full inline-flex items-center justify-between rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 text-xs font-semibold shadow-xs transition-colors group"
+                >
+                  <div className="flex items-center gap-2">
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Manage Teachers</span>
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                </Link>
+              </div>
             </div>
 
             {/* AI Foundation Insight Panel */}

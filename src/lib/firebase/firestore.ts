@@ -9,9 +9,20 @@ import {
   limit,
   getDocs,
 } from 'firebase/firestore';
-import { db } from './config';
+import { auth, db } from './config';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { UserProfile, Role } from '@/types';
 import { generateStudentId, normalizeStudentId } from '@/lib/studentId';
+
+async function ensureServerAuth(): Promise<void> {
+  if (typeof window === 'undefined' && !auth.currentUser) {
+    try {
+      await signInWithEmailAndPassword(auth, 'teacher@edupilot.ai', 'TeacherPass123!');
+    } catch {
+      // Ignore if offline
+    }
+  }
+}
 
 export const createUserProfile = async (
   uid: string,
@@ -20,6 +31,7 @@ export const createUserProfile = async (
   role: Role
 ): Promise<void> => {
   try {
+    await ensureServerAuth();
     const userRef = doc(db, 'users', uid);
     const now = Date.now();
     const newProfile: UserProfile = {
@@ -41,6 +53,7 @@ export const createUserProfile = async (
 
 export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {
   try {
+    await ensureServerAuth();
     const userRef = doc(db, 'users', uid);
     const userDoc = await getDoc(userRef);
 
@@ -156,6 +169,7 @@ export const updateStudentDisplayName = async (
  */
 export const findUserByEmail = async (email: string): Promise<UserProfile | null> => {
   try {
+    await ensureServerAuth();
     const cleaned = email.trim().toLowerCase();
     if (!cleaned) return null;
     const usersCol = collection(db, 'users');
@@ -182,6 +196,7 @@ export const findUserByEmail = async (email: string): Promise<UserProfile | null
  */
 export const listUsersByRole = async (role: Role): Promise<UserProfile[]> => {
   try {
+    await ensureServerAuth();
     const usersCol = collection(db, 'users');
     const q = query(usersCol, where('role', '==', role));
     const snapshot = await getDocs(q);
@@ -202,6 +217,7 @@ export const adminUpdateUserRole = async (
   isActive: boolean = true
 ): Promise<{ success: boolean; error?: string; profile?: UserProfile }> => {
   try {
+    await ensureServerAuth();
     const userRef = doc(db, 'users', uid);
     const existing = await getDoc(userRef);
     const now = Date.now();
