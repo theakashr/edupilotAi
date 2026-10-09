@@ -6,9 +6,6 @@ import {
   validateEducationalFile,
 } from '@/lib/supabase/storage';
 
-export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // Allow up to 5 minutes for large textbook uploads
-
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
